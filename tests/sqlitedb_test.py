@@ -1,4 +1,4 @@
-# Built-in dependencies
+# Built-in dependencies
 import os
 
 # Internal dependencies
@@ -7,7 +7,7 @@ from utils import collection_is_registered
 
 
 class TestSQLiteDB:
-    
+
     def test_create_database(self):
         assert not os.path.exists('test.db')
         db = SQLiteDB('test.db')
@@ -20,15 +20,17 @@ class TestSQLiteDB:
     def test_new_database_does_not_contain_collections(self):
         db = SQLiteDB('test.db')
         assert len(db._collections) == 0
-        rows = db._connection.execute('SELECT count(*) FROM plume_master').fetchone()
+        rows = db._connection.execute(
+            'SELECT count(*) FROM plume_master'
+        ).fetchone()
         assert rows[0] == 0
-        
+
     def test_returns_collection_if_not_exists(self):
         db = SQLiteDB('test.db')
         collection = db.users
         assert isinstance(collection, Collection)
         assert collection._name == 'users'
-        assert collection._created is False
+        assert collection._registered is False
 
     def teardown(self):
         os.remove('test.db')
