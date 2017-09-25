@@ -1,16 +1,11 @@
 # Built-in dependencies
 import json
-import os
 
 # Internal dependencies
-from plume import SQLiteDB
-from utils import collection_is_registered
+from utils import BaseTest, collection_is_registered, table_info
 
 
-class TestCollectionCreation:
-
-    def setup(self):
-        self.db = SQLiteDB('test.db')
+class TestCollectionCreation(BaseTest):
 
     def test_create_and_register_collection(self):
         assert not collection_is_registered(self.db, 'users')
@@ -21,14 +16,8 @@ class TestCollectionCreation:
         assert collection._registered is True
         assert 'users' in self.db._collections
 
-    def teardown(self):
-        os.remove('test.db')
 
-
-class TestCollectionInsertOne:
-
-    def setup(self):
-        self.db = SQLiteDB('test.db')
+class TestCollectionInsertOne(BaseTest):
 
     def test_insert_document_add_new_row(self):
         self.db.actors.insert_one({
@@ -50,14 +39,11 @@ class TestCollectionInsertOne:
         actor = json.loads(document)
         assert actor['name'] == 'Bakery Cumbersome'
 
-    def teardown(self):
-        os.remove('test.db')
 
-
-class TestCollectionFind:
+class TestCollectionFind(BaseTest):
 
     def setup(self):
-        self.db = SQLiteDB('test.db')
+        super().setup()
         self.db.users.insert_one({'name': 'Boby', 'age': 10})
         self.db.users.insert_one({'name': 'John', 'age': 20})
         self.db.users.insert_one({'name': 'Poopy', 'age': 30})
@@ -108,5 +94,53 @@ class TestCollectionFind:
         assert result[1]['age'] == 20
         assert result[1]['name'] == 'John'
 
-    def teardown(self):
-        os.remove('test.db')
+
+class TestCollectionCreateIndex(BaseTest):
+
+    def test_create_index_on_single_text_field(self):
+        self.db.users.create_index({
+            'name': str,
+        })
+        row = self.db._connection.execute(
+            'SELECT indexed_fields FROM plume_master '
+            'WHERE collection_name = "users";'
+        ).fetchone()
+        indexed_fields = json.loads(row[0])
+        assert len(indexed_fields) == 1
+        assert indexed_fields[0] == 'name'
+        columns = table_info(self.db, 'users')
+        assert len(columns) == 3
+        assert columns[2][1] == 'name'
+        assert columns[2][2] == 'TEXT'
+
+    def test_create_index_on_single_integer_field(self):
+        self.db.users.create_index({
+            'age': int,
+        })
+        row = self.db._connection.execute(
+            'SELECT indexed_fields FROM plume_master '
+            'WHERE collection_name = "users";'
+        ).fetchone()
+        indexed_fields = json.loads(row[0])
+        assert len(indexed_fields) == 1
+        assert indexed_fields[0] == 'age'
+        columns = table_info(self.db, 'users')
+        assert len(columns) == 3
+        assert columns[2][1] == 'age'
+        assert columns[2][2] == 'INTEGER'
+
+    def test_create_index_on_single_real_field(self):
+        self.db.users.create_index({
+            'size': float,
+        })
+        row = self.db._connection.execute(
+            'SELECT indexed_fields FROM plume_master '
+            'WHERE collection_name = "users";'
+        ).fetchone()
+        indexed_fields = json.loads(row[0])
+        assert len(indexed_fields) == 1
+        assert indexed_fields[0] == 'size'
+        columns = table_info(self.db, 'users')
+        assert len(columns) == 3
+        assert columns[2][1] == 'size'
+        assert columns[2][2] == 'REAL'

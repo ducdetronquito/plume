@@ -82,12 +82,19 @@ class Selection:
 
 
 class Collection:
-    __slots__ = ('_db', '_name', '_registered')
+    __slots__ = ('_db', '_name', '_indexed_fields', '_registered')
+
+    INDEX_TYPES = {
+        str: 'TEXT',
+        int: 'INTEGER',
+        float: 'REAL',
+    }
 
     def __init__(self, db, name: str, **kwargs) -> None:
         self._db = db
         self._name = name
         self._registered = kwargs.get('registered', False)
+        self._indexed_fields = set(kwargs.get('indexed_fields', []))
 
     def _register(self):
         if self._registered:
@@ -96,7 +103,7 @@ class Collection:
         create_collection_query = """
             CREATE TABLE {} (
                 id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                _data TEXT NOT NULL
+                _data BLOB NOT NULL
             );
         """.format(self._name)
         self._db._connection.execute(create_collection_query)
@@ -108,6 +115,42 @@ class Collection:
         self._db._connection.commit()
         self._db._collections[self._name] = self
         self._registered = True
+
+    def create_index(self, index: dict) -> None:
+        if not self._registered:
+            self._register()
+
+        # Create a dedicated column for each indexed field.
+        create_column_query = "ALTER TABLE {} ADD COLUMN {} {}"
+        for field, _type in index.items():
+            self._db._connection.execute(
+                create_column_query.format(
+                    self._name,
+                    field,
+                    self.INDEX_TYPES[_type]
+                )
+            )
+
+        # Create the Index on the column previously created.
+        field_names = list(index.keys())
+        index_name = '_'.join((self._name, 'index', *field_names))
+        csv_fields = ', '.join(field_names)
+        create_index = "CREATE INDEX {} ON {}({})".format(
+            index_name,
+            self._name,
+            csv_fields
+        )
+        self._db._connection.execute(create_index)
+
+        # Register the new index on the master table for given table.
+        for field in field_names:
+            self._indexed_fields.add(field)
+        json_indexes = json.dumps(list(self._indexed_fields))
+        update_master = (
+            'UPDATE plume_master SET indexed_fields = ? '
+            'WHERE collection_name = "{}"'
+        ).format(self._name)
+        self._db._connection.execute(update_master, [json_indexes])
 
     def find(self, query: dict) -> list:
         selection = Selection(query)
@@ -141,17 +184,22 @@ class SQLiteDB:
         self._connection = sqlite3.connect(self._db_name)
 
         self._connection.execute(
-            "CREATE TABLE IF NOT EXISTS plume_master ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
-            "collection_name TEXT UNIQUE NOT NULL)"
+            'CREATE TABLE IF NOT EXISTS plume_master ('
+            'id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,'
+            'collection_name TEXT UNIQUE NOT NULL,'
+            'indexed_fields TEXT DEFAULT "[]")'
         )
 
         collections = self._connection.execute(
-            "SELECT collection_name FROM plume_master;"
+            "SELECT collection_name, indexed_fields FROM plume_master;"
         ).fetchall()
 
-        for collection_name, _indexes in collections:
-            collection = Collection(self, collection_name)
+        for collection_name, indexed_fields in collections:
+            collection = Collection(
+                self,
+                collection_name,
+                indexed_fields=indexed_fields
+            )
             self._collections[collection_name] = collection
 
     def __getattr__(self, collection_name: str) -> Collection:
