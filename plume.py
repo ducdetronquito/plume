@@ -4,57 +4,83 @@ import sqlite3
 
 
 class ComparisonSelector:
-    __slots__ = ('field', 'value')
+    __slots__ = ('_field', '_value')
 
     def __init__(self, field: str, value) -> None:
-        self.field = field
-        self.value = value
+        self._field = field
+        self._value = value
 
 
 class EqualSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) == self.value
+        return document.get(self._field) == self._value
+
+    def sql(self) -> str:
+        if isinstance(self._value, str):
+            value = '"' + self._value + '"'
+        else:
+            value = self._value
+        return '{} = {}'.format(self._field, value)
 
 
 class GreaterThanSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) > self.value
+        return document.get(self._field) > self._value
+
+    def sql(self) -> str:
+        return '{} > {}'.format(self._field, self._value)
 
 
 class GreaterThanOrEqualSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) >= self.value
+        return document.get(self._field) >= self._value
+
+    def sql(self) -> str:
+        return '{} >= {}'.format(self._field, self._value)
 
 
 class LowerThanSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) < self.value
+        return document.get(self._field) < self._value
+
+    def sql(self) -> str:
+        return '{} < {}'.format(self._field, self._value)
 
 
 class LowerThanOrEqualSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) <= self.value
+        return document.get(self._field) <= self._value
+
+    def sql(self) -> str:
+        return '{} <= {}'.format(self._field, self._value)
 
 
 class NotEqualSelector(ComparisonSelector):
     __slots__ = ()
 
     def allows(self, document: dict) -> bool:
-        return document.get(self.field) != self.value
+        return document.get(self._field) != self._value
+
+    def sql(self) -> str:
+        if isinstance(self._value, str):
+            value = '"' + self._value + '"'
+        else:
+            value = self._value
+        return '{} != {}'.format(self._field, value)
 
 
 class Selection:
-    __slots__ = ('_selectors',)
+    __slots__ = ('_index_selectors', '_selectors', '_table_name')
 
     SELECTORS = {
         '$eq': EqualSelector,
@@ -65,13 +91,18 @@ class Selection:
         '$ne': NotEqualSelector,
     }
 
-    def __init__(self, query: dict) -> None:
+    def __init__(self, table_name: str, indexed_fields: set,
+                 query: dict) -> None:
         self._selectors = []
-
+        self._index_selectors = []
+        self._table_name = table_name
         for field, selectors in query.items():
             for name, value in selectors.items():
                 selector = self.SELECTORS[name](field, value)
-                self._selectors.append(selector)
+                if field in indexed_fields:
+                    self._index_selectors.append(selector)
+                else:
+                    self._selectors.append(selector)
 
     def match(self, document: dict) -> bool:
         for selector in self._selectors:
@@ -79,6 +110,22 @@ class Selection:
                 return False
 
         return True
+
+    def sql_query(self) -> str:
+        fields = ['_data']
+        select_query = "SELECT {} FROM {}{}"
+        if self._index_selectors:
+            where_clause = ' WHERE ' + ' AND '.join(
+                selector.sql() for selector in self._index_selectors
+            )
+        else:
+            where_clause = ''
+        fields += (selector._field for selector in self._index_selectors)
+        return select_query.format(
+            ', '.join(fields),
+            self._table_name,
+            where_clause
+        )
 
 
 class Collection:
@@ -153,9 +200,9 @@ class Collection:
         self._db._connection.execute(update_master, [json_indexes])
 
     def find(self, query: dict) -> list:
-        selection = Selection(query)
-
-        select_query = "SELECT _data FROM {}".format(self._name)
+        selection = Selection(self._name, self._indexed_fields, query)
+        select_query = selection.sql_query()
+        print(select_query)
         result = self._db._connection.execute(select_query).fetchall()
 
         documents = (json.loads(row[0]) for row in result)

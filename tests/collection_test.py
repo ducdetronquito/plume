@@ -69,7 +69,7 @@ class TestCollectionInsertOne(BaseTest):
         assert json.loads(document[0]) == {
             'age': 42
         }
-        assert document[1] == None
+        assert document[1] is None
 
 
 class TestCollectionFind(BaseTest):
@@ -125,6 +125,35 @@ class TestCollectionFind(BaseTest):
         assert result[0]['name'] == 'Boby'
         assert result[1]['age'] == 20
         assert result[1]['name'] == 'John'
+
+
+class TestCollectionFindWithIndex(BaseTest):
+
+    def test_find_on_single_indexed_text_field(self):
+        self.db.users.create_index({'name': str})
+        self.db.users.insert_one({'name': 'Boby', 'age': 10})
+        self.db.users.insert_one({'name': 'John', 'age': 20})
+        self.db.users.insert_one({'name': 'Poopy', 'age': 30})
+        result = self.db.users.find({
+            'name': {'$eq': 'John'}
+        })
+        assert len(result) == 1
+        assert result[0]['age'] == 20
+        assert result[0]['name'] == 'John'
+
+    def test_find_on_single_indexed_integer_field(self):
+        self.db.users.create_index({'age': int})
+        self.db.users.insert_one({'name': 'Boby', 'age': 10})
+        self.db.users.insert_one({'name': 'John', 'age': 20})
+        self.db.users.insert_one({'name': 'Poopy', 'age': 30})
+        result = self.db.users.find({
+            'age': {'$gt': 10}
+        })
+        assert len(result) == 2
+        assert result[0]['age'] == 20
+        assert result[0]['name'] == 'John'
+        assert result[1]['age'] == 30
+        assert result[1]['name'] == 'Poopy'
 
 
 class TestCollectionCreateIndex(BaseTest):
