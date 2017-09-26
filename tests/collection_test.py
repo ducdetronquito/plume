@@ -39,6 +39,38 @@ class TestCollectionInsertOne(BaseTest):
         actor = json.loads(document)
         assert actor['name'] == 'Bakery Cumbersome'
 
+    def test_insert_one_with_single_field_index(self):
+        self.db.actors.create_index({
+            'name': str,
+        })
+        self.db.actors.insert_one({
+            'name': 'Bakery Cumbersome'
+        })
+        document = self.db._connection.execute(
+            'SELECT _data, name FROM actors'
+        ).fetchone()
+        assert len(document) == 2
+        assert json.loads(document[0]) == {
+            'name': 'Bakery Cumbersome'
+        }
+        assert document[1] == 'Bakery Cumbersome'
+
+    def test_insert_one_with_single_field_index_with_missing_field(self):
+        self.db.actors.create_index({
+            'name': str,
+        })
+        self.db.actors.insert_one({
+            'age': 42
+        })
+        document = self.db._connection.execute(
+            'SELECT _data, name FROM actors'
+        ).fetchone()
+        assert len(document) == 2
+        assert json.loads(document[0]) == {
+            'age': 42
+        }
+        assert document[1] == None
+
 
 class TestCollectionFind(BaseTest):
 

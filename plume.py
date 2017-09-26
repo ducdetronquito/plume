@@ -167,11 +167,23 @@ class Collection:
         if not self._registered:
             self._register()
 
-        json_str = json.dumps(document)
-        insert_one_query = """
-            INSERT INTO {}(_data) VALUES (?)
-        """.format(self._name)
-        self._db._connection.execute(insert_one_query, (json_str,))
+        fields = ['_data']
+        values = [json.dumps(document)]
+        placeholders = ['?']
+
+        if self._indexed_fields:
+            fields += self._indexed_fields
+            values += (
+                document.get(field) for field in self._indexed_fields
+            )
+            placeholders += (len(self._indexed_fields) * ['?'])
+
+        insert_one_query = 'INSERT INTO {}({}) VALUES ({})'.format(
+            self._name,
+            ', '.join(fields),
+            ', '.join(placeholders)
+        )
+        self._db._connection.execute(insert_one_query, values)
         self._db._connection.commit()
 
 
