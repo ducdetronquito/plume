@@ -200,12 +200,14 @@ class Collection:
         self._db._connection.execute(update_master, [json_indexes])
 
     def find(self, query: dict) -> list:
+        if not self._registered:
+            self._register()
+
         selection = Selection(self._name, self._indexed_fields, query)
         select_query = selection.sql_query()
-        print(select_query)
         result = self._db._connection.execute(select_query).fetchall()
-
         documents = (json.loads(row[0]) for row in result)
+
         return [
             document for document in documents if selection.match(document)
         ]
@@ -231,6 +233,33 @@ class Collection:
             ', '.join(placeholders)
         )
         self._db._connection.execute(insert_one_query, values)
+        self._db._connection.commit()
+
+    def insert_many(self, documents: list) -> None:
+        if not self._registered:
+            self._register()
+
+        fields = ['_data']
+        placeholders = ['?']
+        rows = []
+        if self._indexed_fields:
+            fields += list(self._indexed_fields)
+            placeholders += (len(self._indexed_fields) * ['?'])
+
+        for document in documents:
+            row = [json.dumps(document)]
+            if self._indexed_fields:
+                row += (
+                    document.get(field) for field in self._indexed_fields
+                )
+            rows.append(row)
+
+        insert_query = 'INSERT INTO {}({}) VALUES ({})'.format(
+            self._name,
+            ', '.join(fields),
+            ', '.join(placeholders)
+        )
+        self._db._connection.executemany(insert_query, rows)
         self._db._connection.commit()
 
 

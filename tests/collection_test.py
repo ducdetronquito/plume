@@ -72,6 +72,90 @@ class TestCollectionInsertOne(BaseTest):
         assert document[1] is None
 
 
+class TestCollectionInsertMany(BaseTest):
+
+    def test_insert_document_add_new_rows(self):
+        self.db.actors.insert_many([
+            {'name': 'Bakery Cumbersome'},
+            {'name': 'Beezlebub Cabbagepatch'},
+            {'name': 'Bombadil Cottagecheese'},
+        ])
+        row = self.db._connection.execute(
+            'SELECT count(_data) FROM actors'
+        ).fetchone()
+        assert row[0] == 3
+
+    def test_retrieve_document_values(self):
+        self.db.actors.insert_many([
+            {'name': 'Bakery Cumbersome'},
+            {'name': 'Beezlebub Cabbagepatch'},
+            {'name': 'Bombadil Cottagecheese'},
+        ])
+
+        documents = self.db._connection.execute(
+            'SELECT _data FROM actors'
+        ).fetchall()
+        assert len(documents) == 3
+        actor_1 = json.loads(documents[0][0])
+        actor_2 = json.loads(documents[1][0])
+        actor_3 = json.loads(documents[2][0])
+        assert actor_1['name'] == 'Bakery Cumbersome'
+        assert actor_2['name'] == 'Beezlebub Cabbagepatch'
+        assert actor_3['name'] == 'Bombadil Cottagecheese'
+
+    def test_insert_with_single_field_index(self):
+        self.db.actors.create_index({
+            'name': str,
+        })
+        self.db.actors.insert_many([
+            {'name': 'Bakery Cumbersome'},
+            {'name': 'Beezlebub Cabbagepatch'},
+            {'name': 'Bombadil Cottagecheese'},
+        ])
+        documents = self.db._connection.execute(
+            'SELECT _data, name FROM actors'
+        ).fetchall()
+        assert len(documents) == 3
+
+        actor_1 = json.loads(documents[0][0])
+        assert actor_1['name'] == 'Bakery Cumbersome'
+        assert documents[0][1] == 'Bakery Cumbersome'
+
+        actor_2 = json.loads(documents[1][0])
+        assert actor_2['name'] == 'Beezlebub Cabbagepatch'
+        assert documents[1][1] == 'Beezlebub Cabbagepatch'
+
+        actor_3 = json.loads(documents[2][0])
+        assert actor_3['name'] == 'Bombadil Cottagecheese'
+        assert documents[2][1] == 'Bombadil Cottagecheese'
+
+    def test_insert_with_single_field_index_with_missing_field(self):
+        self.db.actors.create_index({
+            'name': str,
+        })
+        self.db.actors.insert_many([
+            {'name': 'Bakery Cumbersome'},
+            {'age': 42},
+            {'name': 'Bombadil Cottagecheese'},
+        ])
+        documents = self.db._connection.execute(
+            'SELECT _data, name FROM actors'
+        ).fetchall()
+        assert len(documents) == 3
+
+        actor_1 = json.loads(documents[0][0])
+        assert actor_1['name'] == 'Bakery Cumbersome'
+        assert documents[0][1] == 'Bakery Cumbersome'
+
+        actor_2 = json.loads(documents[1][0])
+        assert actor_2['age'] == 42
+        assert documents[1][1] is None
+
+        actor_3 = json.loads(documents[2][0])
+        assert actor_3['name'] == 'Bombadil Cottagecheese'
+        assert documents[2][1] == 'Bombadil Cottagecheese'
+
+
 class TestCollectionFind(BaseTest):
 
     def setup(self):
