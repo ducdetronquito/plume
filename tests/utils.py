@@ -4,12 +4,53 @@ import os
 # Internal dependencies
 from plume import SQLiteDB
 
+ACTORS = [
+    {
+        'name': 'Bakery Cumbersome',
+        'age': 10,
+        'size': 1.6,
+        'meta': {
+            'social_media': {
+                'mastodon_profile': 'Bakery@Cumbersome'
+            }
+        }
+    },
+    {
+        'name': 'Beezlebub Cabbagepatch',
+        'age': 20,
+        'size': 1.7,
+        'meta': {
+            'social_media': {
+                'mastodon_profile': 'Beezlebub@Cabbagepatch'
+            }
+        }
+    },
+    {
+        'name': 'Bombadil Cottagecheese',
+        'age': 30,
+        'size': 1.8,
+        'meta': {
+            'social_media': {
+                'mastodon_profile': 'Bombadil@Cottagecheese'
+            }
+        }
+    },
+]
+
 
 class BaseTest:
     def setup(self):
         self.db = SQLiteDB('test.db')
 
     def teardown(self):
+        os.remove('test.db')
+
+
+class ReadingOpBaseTest:
+    def setup_class(cls):
+        cls.db = SQLiteDB('test.db')
+
+    def teardown_class(self):
         os.remove('test.db')
 
 

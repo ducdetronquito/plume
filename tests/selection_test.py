@@ -19,7 +19,7 @@ class TestSQLSelection:
         })
 
         sql_query = select_query.sql_query()
-        expected = 'SELECT _data FROM users WHERE name = "John"'
+        expected = 'SELECT _data FROM users WHERE "name" = "John"'
         assert sql_query == expected
 
     def test_select_indexed_integer_field(self):
@@ -28,7 +28,7 @@ class TestSQLSelection:
         })
 
         sql_query = select_query.sql_query()
-        expected = 'SELECT _data FROM users WHERE age = 42'
+        expected = 'SELECT _data FROM users WHERE "age" = 42'
         assert sql_query == expected
 
     def test_select_indexed_float_field(self):
@@ -37,7 +37,7 @@ class TestSQLSelection:
         })
 
         sql_query = select_query.sql_query()
-        expected = 'SELECT _data FROM users WHERE size = 1.66'
+        expected = 'SELECT _data FROM users WHERE "size" = 1.66'
         assert sql_query == expected
 
     def test_select_implicit_and(self):
@@ -46,7 +46,7 @@ class TestSQLSelection:
         query = {'age': {'$gt': 18, '$lt': 42}}
         select_query = SelectQuery(table, indexed_fields, query)
         sql_query = select_query.sql_query()
-        expected = "SELECT _data FROM users WHERE age > 18 AND age < 42"
+        expected = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
         assert sql_query == expected
 
     def test_select_implicit_and_on_non_indexed_field(self):
@@ -71,7 +71,7 @@ class TestSQLSelection:
         sql_query = select_query.sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            'name = "Mario" AND age > 18 AND age < 42'
+            '"name" = "Mario" AND "age" > 18 AND "age" < 42'
         )
         assert sql_query == expected
 
@@ -83,7 +83,7 @@ class TestSQLSelection:
         }
         select_query = SelectQuery(table, indexed_fields, query)
         sql_query = select_query.sql_query()
-        expected = "SELECT _data FROM users WHERE age > 18 AND age < 42"
+        expected = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
         assert sql_query == expected
 
     def test_select_and_with_implicit_and(self):
@@ -99,7 +99,7 @@ class TestSQLSelection:
         sql_query = select_query.sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            'age > 18 AND age < 42 AND size > 1.6 AND size < 1.9'
+            '"age" > 18 AND "age" < 42 AND "size" > 1.6 AND "size" < 1.9'
         )
         assert sql_query == expected
 
@@ -116,7 +116,7 @@ class TestSQLSelection:
         sql_query = select_query.sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            'name = "Mario" OR name = "Luigi"'
+            '"name" = "Mario" OR "name" = "Luigi"'
         )
         assert sql_query == expected
 
@@ -134,7 +134,7 @@ class TestSQLSelection:
         sql_query = select_query.sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            'age = 42 AND name = "Mario" OR name = "Luigi"'
+            '"age" = 42 AND "name" = "Mario" OR "name" = "Luigi"'
         )
         assert sql_query == expected
 
@@ -157,7 +157,7 @@ class TestSQLSelection:
         sql_query = select_query.sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            'name = "Mario" OR name = "Luigi" OR age > 18 AND age < 42'
+            '"name" = "Mario" OR "name" = "Luigi" OR "age" > 18 AND "age" < 42'
         )
         assert sql_query == expected
 

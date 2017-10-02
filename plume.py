@@ -4,12 +4,21 @@ import operator
 import sqlite3
 
 
+def _get_nested_value(document: dict, field: str):
+    nested_fields = field.split('.')
+    value = document
+    try:
+        for field in nested_fields:
+            value = value[field]
+        return value
+    except KeyError:
+        return None
+
+
 class Selector:
 
     def get_selector(self, key: str, expression):
-        # If the key is a field name.
         if key[0] != '$':
-            # If the expression is a value it implies an equalty selector.
             if not isinstance(expression, dict):
                 return Equal(key, expression)
             elif len(expression) == 1:
@@ -122,12 +131,15 @@ class ComparisonSelector(Selector):
         self._value = value
 
     def match(self, document: dict) -> bool:
-        return self._operator(document.get(self._field), self._value)
+        return self._operator(
+            _get_nested_value(document, self._field),
+            self._value
+        )
 
     def sql(self, indexed_fields: set) -> bool:
         if self._field in indexed_fields:
             return ' '.join([
-                self._field, self._sql_operator, str(self._value)
+                '"' + self._field + '"', self._sql_operator, str(self._value)
             ])
 
 
@@ -144,7 +156,9 @@ class Equal(ComparisonSelector):
             value = '"' + self._value + '"'
         else:
             value = self._value
-        return ' '.join([self._field, self._sql_operator, str(value)])
+        return ' '.join([
+            '"' + self._field + '"', self._sql_operator, str(value)
+        ])
 
 
 class GreaterThan(ComparisonSelector):
@@ -182,7 +196,9 @@ class NotEqual(ComparisonSelector):
                 value = '"' + self._value + '"'
             else:
                 value = self._value
-            return ' '.join([self._field, self._sql_operator, value])
+            return ' '.join([
+                '"' + self._field + '"', self._sql_operator, str(value)
+            ])
 
 
 class SelectQuery:
@@ -209,7 +225,10 @@ class SelectQuery:
 
 
 class Collection:
-    __slots__ = ('_db', '_name', '_indexed_fields', '_registered')
+    __slots__ = (
+        '_db', '_formated_indexed_fields', '_indexed_fields',
+        '_name', '_registered'
+    )
 
     INDEX_TYPES = {
         str: 'TEXT',
@@ -222,6 +241,9 @@ class Collection:
         self._name = name
         self._registered = kwargs.get('registered', False)
         self._indexed_fields = set(kwargs.get('indexed_fields', []))
+        self._formated_indexed_fields = {
+            '"' + field + '"' for field in self._indexed_fields
+        }
 
     def _register(self):
         if self._registered:
@@ -247,8 +269,13 @@ class Collection:
             self._register()
 
         # Create a dedicated column for each indexed field.
+        # We add double quotes around index and table names
+        # for sqlite to allow us to use "."
+        formated_indexed_field = []
         create_column_query = 'ALTER TABLE {} ADD COLUMN {} {}'
         for field, _type in index.items():
+            field = '"' + field + '"'
+            formated_indexed_field.append(field)
             self._db._connection.execute(
                 create_column_query.format(
                     self._name,
@@ -258,19 +285,22 @@ class Collection:
             )
 
         # Create the Index on the column previously created.
-        field_names = list(index.keys())
-        index_name = '_'.join((self._name, 'index', *field_names))
-        csv_fields = ', '.join(field_names)
+        index_name = '_'.join((self._name, 'index', *index.keys()))
+        csv_fields = ', '.join(formated_indexed_field)
         create_index = 'CREATE INDEX {} ON {}({})'.format(
-            index_name,
+            '"' + index_name + '"',
             self._name,
             csv_fields
         )
         self._db._connection.execute(create_index)
 
         # Register the new index on the master table for given table.
-        for field in field_names:
+        for field in index.keys():
             self._indexed_fields.add(field)
+
+        for field in formated_indexed_field:
+            self._formated_indexed_fields.add(field)
+
         json_indexes = json.dumps(list(self._indexed_fields))
         update_master = (
             'UPDATE plume_master SET indexed_fields = ? '
@@ -300,11 +330,12 @@ class Collection:
         placeholders = ['?']
 
         if self._indexed_fields:
-            fields += self._indexed_fields
+            fields += self._formated_indexed_fields
             values += (
-                document.get(field) for field in self._indexed_fields
+                _get_nested_value(document, field)
+                for field in self._indexed_fields
             )
-            placeholders += (len(self._indexed_fields) * ['?'])
+            placeholders += (len(self._formated_indexed_fields) * ['?'])
 
         insert_one_query = 'INSERT INTO {}({}) VALUES ({})'.format(
             self._name,
@@ -322,14 +353,15 @@ class Collection:
         placeholders = ['?']
         rows = []
         if self._indexed_fields:
-            fields += list(self._indexed_fields)
-            placeholders += (len(self._indexed_fields) * ['?'])
+            fields += list(self._formated_indexed_fields)
+            placeholders += (len(self._formated_indexed_fields) * ['?'])
 
         for document in documents:
             row = [json.dumps(document)]
             if self._indexed_fields:
                 row += (
-                    document.get(field) for field in self._indexed_fields
+                    _get_nested_value(document, field)
+                    for field in self._indexed_fields
                 )
             rows.append(row)
 
@@ -365,7 +397,8 @@ class SQLiteDB:
             collection = Collection(
                 self,
                 collection_name,
-                indexed_fields=indexed_fields
+                indexed_fields=indexed_fields,
+                registered=True,
             )
             self._collections[collection_name] = collection
 
