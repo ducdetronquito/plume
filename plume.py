@@ -374,7 +374,7 @@ class Collection:
         self._db._connection.commit()
 
 
-class SQLiteDB:
+class PlumeDB:
     __slots__ = ('_collections', '_connection', '_db_name',)
 
     def __init__(self, db_name: str) -> None:
