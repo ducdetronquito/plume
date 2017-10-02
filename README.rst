@@ -12,8 +12,8 @@ Done:
 
 - Database creation with **PlumeDB('test.db')**
 - Lazy collection creation
-- Document insertion with **Collection.insert**, **Collection.insert_many**
-- Document lookup with **Collection.find**
+- Document insertion with **Collection.insert** and **Collection.insert_many**
+- Document lookup with **Collection.find** and **Collection.find_one**
     - Follows the MongoDB query API
     - Support comparison operator: **$eq**, **$gt**, **$gte**, **$lt**, **$lte**, **$ne**
     - Support logical operator: **$and**, **$or** 
@@ -24,7 +24,6 @@ Done:
 To do:
 ------
 
-- Add **Collection.find_one**
 - Add **Collection.replace_one**
 - Add **Collection.update_one**
 - Add **Collection.update_many**

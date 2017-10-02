@@ -254,6 +254,55 @@ class TestCollectionFind(ReadingOpBaseTest):
         assert result[1]['name'] == 'Beezlebub Cabbagepatch'
 
 
+class TestCollectionFindOne(ReadingOpBaseTest):
+
+    def setup_class(cls):
+        super().setup_class(cls)
+        cls.db.actors.insert_many(ACTORS)
+
+    def test_equal_selector(self):
+        document = self.db.actors.find_one({'age': {'$eq': 20}})
+        assert document['age'] == 20
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+
+    def test_equal_selector_on_nested_field(self):
+        document = self.db.actors.find_one({
+            'meta.social_media.mastodon_profile': {
+                '$eq': 'Beezlebub@Cabbagepatch'
+            }
+        })
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+        assert (
+            document['meta']['social_media']['mastodon_profile']
+            == 'Beezlebub@Cabbagepatch'
+        )
+
+    def test_not_equal_selector(self):
+        document = self.db.actors.find_one({'age': {'$ne': 20}})
+        assert document['age'] == 10
+        assert document['name'] == 'Bakery Cumbersome'
+
+    def test_greater_than_selector(self):
+        document = self.db.actors.find_one({'age': {'$gt': 10}})
+        assert document['age'] == 20
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+
+    def test_greater_than_equals_selector(self):
+        document = self.db.actors.find_one({'age': {'$gte': 20}})
+        assert document['age'] == 20
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+
+    def test_lower_than_selector(self):
+        document = self.db.actors.find_one({'age': {'$lt': 30}})
+        assert document['age'] == 10
+        assert document['name'] == 'Bakery Cumbersome'
+
+    def test_lower_than_equal_selector(self):
+        document = self.db.actors.find_one({'age': {'$lte': 20}})
+        assert document['age'] == 10
+        assert document['name'] == 'Bakery Cumbersome'
+
+
 class TestCollectionFindWithIndex(BaseTest):
 
     def test_find_on_single_indexed_text_field(self):
@@ -297,6 +346,34 @@ class TestCollectionFindWithIndex(BaseTest):
         assert (
             result[0]['meta']['social_media']['mastodon_profile']
             == 'Beezlebub@Cabbagepatch'
+        )
+
+
+class TestCollectionFindOneWithIndex(BaseTest):
+
+    def test_find_on_single_indexed_integer_field(self):
+        self.db.actors.create_index({'age': int})
+        self.db.actors.insert_many(ACTORS)
+        document = self.db.actors.find_one({
+            'age': {'$gt': 10}
+        })
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+        assert document['age'] == 20
+
+    def test_find_on_nested_indexed_field(self):
+        self.db.actors.create_index({
+            'meta.social_media.mastodon_followers': int
+        })
+        self.db.actors.insert_many(ACTORS)
+        document = self.db.actors.find_one({
+            'meta.social_media.mastodon_followers': {
+                '$gt': 10
+            }
+        })
+        assert document['name'] == 'Beezlebub Cabbagepatch'
+        assert (
+            document['meta']['social_media']['mastodon_followers']
+            == 20
         )
 
 

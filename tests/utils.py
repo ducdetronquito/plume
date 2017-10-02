@@ -11,7 +11,8 @@ ACTORS = [
         'size': 1.6,
         'meta': {
             'social_media': {
-                'mastodon_profile': 'Bakery@Cumbersome'
+                'mastodon_profile': 'Bakery@Cumbersome',
+                'mastodon_followers': 10
             }
         }
     },
@@ -21,7 +22,8 @@ ACTORS = [
         'size': 1.7,
         'meta': {
             'social_media': {
-                'mastodon_profile': 'Beezlebub@Cabbagepatch'
+                'mastodon_profile': 'Beezlebub@Cabbagepatch',
+                'mastodon_followers': 20
             }
         }
     },
@@ -31,7 +33,8 @@ ACTORS = [
         'size': 1.8,
         'meta': {
             'social_media': {
-                'mastodon_profile': 'Bombadil@Cottagecheese'
+                'mastodon_profile': 'Bombadil@Cottagecheese',
+                'mastodon_followers': 30
             }
         }
     },
