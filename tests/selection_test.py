@@ -12,7 +12,7 @@ class TestSQLSelection:
             'name': {'$eq': 'John'}
         })
 
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users'
         assert sql_query == expected
 
@@ -21,7 +21,7 @@ class TestSQLSelection:
             'name': {'$eq': 'John'}
         })
 
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users WHERE "name" = "John"'
         assert sql_query == expected
 
@@ -30,7 +30,7 @@ class TestSQLSelection:
             'age': {'$eq': 42}
         })
 
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users WHERE "age" = 42'
         assert sql_query == expected
 
@@ -39,7 +39,7 @@ class TestSQLSelection:
             'size': {'$eq': 1.66}
         })
 
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users WHERE "size" = 1.66'
         assert sql_query == expected
 
@@ -47,7 +47,7 @@ class TestSQLSelection:
         indexed_fields = set(['age'])
         query = {'age': {'$gt': 18, '$lt': 42}}
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
         assert sql_query == expected
 
@@ -55,7 +55,7 @@ class TestSQLSelection:
         indexed_fields = set(['name'])
         query = {'age': {'$gt': 18, '$lt': 42}}
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = "SELECT _data FROM users"
         assert sql_query == expected
 
@@ -68,7 +68,7 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
             '"name" = "Mario" AND "age" > 18 AND "age" < 42'
@@ -81,7 +81,7 @@ class TestSQLSelection:
             '$and': [{'age': {'$gt': 18}}, {'age': {'$lt': 42}}]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
         assert sql_query == expected
 
@@ -94,7 +94,7 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
             '"age" > 18 AND "age" < 42 AND "size" > 1.6 AND "size" < 1.9'
@@ -110,7 +110,7 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
             '"name" = "Mario" OR "name" = "Luigi"'
@@ -127,7 +127,7 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
             '"age" = 42 AND "name" = "Mario" OR "name" = "Luigi"'
@@ -149,7 +149,7 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
             '"name" = "Mario" OR "name" = "Luigi" OR "age" > 18 AND "age" < 42'
@@ -171,6 +171,54 @@ class TestSQLSelection:
             ]
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
-        sql_query = select_query.sql_query()
+        sql_query = select_query._sql_query()
+        expected = 'SELECT _data FROM users'
+        assert sql_query == expected
+
+    def test_projection_include_indexed_field(self):
+        indexed_fields = set(['name'])
+        query = {'name': {'$eq': 'John'}}
+        projection = {'name': 1}
+        select_query = SelectQuery(
+            self._collection, indexed_fields, query, projection
+        )
+
+        sql_query = select_query._sql_query()
+        expected = 'SELECT "name" FROM users WHERE "name" = "John"'
+        assert sql_query == expected
+
+    def test_projection_include_non_indexed_field(self):
+        indexed_fields = set(['age'])
+        query = {'name': {'$eq': 'John'}}
+        projection = {'name': 1}
+        select_query = SelectQuery(
+            self._collection, indexed_fields, query, projection
+        )
+
+        sql_query = select_query._sql_query()
+        expected = 'SELECT _data FROM users'
+        assert sql_query == expected
+
+    def test_projection_exclude_indexed_field(self):
+        indexed_fields = set(['name'])
+        query = {'name': {'$eq': 'John'}}
+        projection = {'name': 0}
+        select_query = SelectQuery(
+            self._collection, indexed_fields, query, projection
+        )
+
+        sql_query = select_query._sql_query()
+        expected = 'SELECT _data FROM users WHERE "name" = "John"'
+        assert sql_query == expected
+
+    def test_projection_exclude_non_indexed_field(self):
+        indexed_fields = set(['age'])
+        query = {'name': {'$eq': 'John'}}
+        projection = {'name': 0}
+        select_query = SelectQuery(
+            self._collection, indexed_fields, query, projection
+        )
+
+        sql_query = select_query._sql_query()
         expected = 'SELECT _data FROM users'
         assert sql_query == expected

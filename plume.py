@@ -4,13 +4,39 @@ import operator
 import sqlite3
 
 
-def _get_nested_value(document: dict, field: str):
+class BadProjection(ValueError):
+    pass
+
+
+def _nested_get(document: dict, field: str):
     nested_fields = field.split('.')
     value = document
     try:
         for field in nested_fields:
             value = value[field]
         return value
+    except KeyError:
+        return None
+
+
+def _nested_pop(document, field):
+    *parent_fields, last_field = field.split('.')
+    parent = document
+    try:
+        for field in parent_fields:
+            parent = parent[field]
+        return parent.pop(last_field, None)
+    except KeyError:
+        return None
+
+
+def _nested_set(document, field, value):
+    *parent_fields, last_field = field.split('.')
+    parent = document
+    try:
+        for field in parent_fields:
+            parent = parent.setdefault(field, {})
+        parent[last_field] = value
     except KeyError:
         return None
 
@@ -55,6 +81,9 @@ class And(Selector):
             key, value = expression.popitem()
             selector = self.get_selector(key, value)
             self._selectors.append(selector)
+
+    def is_empty(self) -> bool:
+        return False if self._selectors else True
 
     def match(self, document: dict) -> bool:
         for selector in self._selectors:
@@ -132,7 +161,7 @@ class ComparisonSelector(Selector):
 
     def match(self, document: dict) -> bool:
         return self._operator(
-            _get_nested_value(document, self._field),
+            _nested_get(document, self._field),
             self._value
         )
 
@@ -202,15 +231,32 @@ class NotEqual(ComparisonSelector):
 
 
 class SelectQuery:
-    __slots__ = ('_collection', '_indexed_fields', '_limit', '_query_tree')
+    __slots__ = (
+        '_collection', '_exclude_fields', '_include_fields',
+        '_indexed_fields', '_limit', '_query_tree',
+    )
 
     def __init__(self, collection, indexed_fields: set,
-                 query: dict, limit: int=None) -> None:
+                 query: dict, projection: dict=None, limit: int=None) -> None:
         self._collection = collection
         self._indexed_fields = indexed_fields
         self._limit = limit
         query = [{key: value} for key, value in query.items()]
         self._query_tree = And(query)
+
+        self._include_fields = set()
+        self._exclude_fields = set()
+        if projection is None:
+            return
+        for field, presence in projection.items():
+            if presence == 1:
+                self._include_fields.add(field)
+            elif presence == 0:
+                self._exclude_fields.add(field)
+
+        if self._include_fields and self._exclude_fields:
+            msg = 'A projection can only include or exclude fields:\n {}'
+            raise BadProjection(msg.format(projection))
 
     def match_many(self, documents: list) -> list:
         # If all filters have been applyed on indexed field
@@ -218,22 +264,50 @@ class SelectQuery:
         if not self._query_tree._selectors:
             return list(documents)
 
-        return [
+        return (
             document for document in documents
             if self._query_tree.match(document)
-        ]
+        )
 
     def match_one(self, documents: list) -> dict:
-        if documents and not self._query_tree._selectors:
+        if documents and self._query_tree.is_empty():
             return list(documents)[0]
 
         for document in documents:
             if self._query_tree.match(document):
                 return document
 
-    def sql_query(self) -> str:
-        select_query = ['SELECT', '_data', 'FROM', self._collection._name]
+    def _projection_is_index_only(self):
+        return (self._include_fields and self._include_fields.issubset(
+            self._indexed_fields)
+        )
+
+    def _skim(self, document: dict) -> dict:
+        if self._include_fields:
+            new_document = {}
+            for field in self._include_fields:
+                value = _nested_get(document, field)
+                _nested_set(new_document, field, value)
+            return new_document
+        elif self._exclude_fields:
+            for field in self._exclude_fields:
+                _nested_pop(document, field)
+            return document
+        else:
+            return document
+
+    def _sql_query(self) -> str:
+        select_query = ['SELECT']
         where_clause = self._query_tree.sql(self._indexed_fields)
+
+        if (self._projection_is_index_only() and self._query_tree.is_empty()):
+            fields = ', '.join(
+                '"' + field + '"' for field in self._indexed_fields
+            )
+            select_query.append(fields)
+        else:
+            select_query.append('_data')
+        select_query += ['FROM', self._collection._name]
 
         if where_clause is not None:
             select_query += ['WHERE', where_clause]
@@ -244,13 +318,33 @@ class SelectQuery:
         return ' '.join(select_query)
 
     def execute(self):
-        sql_query = self.sql_query()
+        sql_query = self._sql_query()
         result = self._collection._db._connection.execute(sql_query).fetchall()
-        documents = (json.loads(row[0]) for row in result)
+        if (self._projection_is_index_only() and self._query_tree.is_empty()):
+            # If the selection and the projection have been applied on
+            # indexed fields only, we have to rebuild a dictionary from
+            # the value of each returned row.
+            if result and self._limit == 1:
+                new_document = {}
+                for field, value in zip(self._include_fields, result[0]):
+                    _nested_set(new_document, field, value)
+                return new_document
 
+            documents = []
+            for row in result:
+                new_document = {}
+                for field, value in zip(self._include_fields, row):
+                    _nested_set(new_document, field, value)
+                documents.append(new_document)
+            return documents
+
+        partially_matching_documents = (json.loads(row[0]) for row in result)
         if self._limit == 1:
-            return self.match_one(documents)
-        return self.match_many(documents)
+            matching_document = self.match_one(partially_matching_documents)
+            return self._skim(matching_document)
+        else:
+            matching_documents = self.match_many(partially_matching_documents)
+            return [self._skim(document) for document in matching_documents]
 
 
 class Collection:
@@ -343,7 +437,7 @@ class Collection:
             self._register()
 
         select_query = SelectQuery(
-            self, self._indexed_fields, query, limit
+            self, self._indexed_fields, query, projection, limit
         )
         return select_query.execute()
 
@@ -352,7 +446,7 @@ class Collection:
             self._register()
 
         select_query = SelectQuery(
-            self, self._indexed_fields, query, 1
+            self, self._indexed_fields, query, projection, 1
         )
         return select_query.execute()
 
@@ -367,7 +461,7 @@ class Collection:
         if self._indexed_fields:
             fields += self._formated_indexed_fields
             values += (
-                _get_nested_value(document, field)
+                _nested_get(document, field)
                 for field in self._indexed_fields
             )
             placeholders += (len(self._formated_indexed_fields) * ['?'])
@@ -395,7 +489,7 @@ class Collection:
             row = [json.dumps(document)]
             if self._indexed_fields:
                 row += (
-                    _get_nested_value(document, field)
+                    _nested_get(document, field)
                     for field in self._indexed_fields
                 )
             rows.append(row)
@@ -405,6 +499,7 @@ class Collection:
             ', '.join(fields),
             ', '.join(placeholders)
         )
+
         self._db._connection.executemany(insert_query, rows)
         self._db._connection.commit()
 

@@ -253,6 +253,67 @@ class TestCollectionFind(ReadingOpBaseTest):
         assert result[1]['age'] == 20
         assert result[1]['name'] == 'Beezlebub Cabbagepatch'
 
+    def test_projection_include_field(self):
+        query = {'age': {'$gt': 10}}
+        projection = {'name': 1}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+        assert len(documents[0]) == 1
+        assert documents[0]['name'] == 'Beezlebub Cabbagepatch'
+        assert len(documents[1]) == 1
+        assert documents[1]['name'] == 'Bombadil Cottagecheese'
+
+    def test_projection_include_nested_field(self):
+        query = query = {'age': {'$gt': 10}}
+        projection = {'meta.social_media.mastodon_profile': 1}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+
+        assert len(documents[0]) == 1
+        assert (
+            documents[0]['meta']['social_media']['mastodon_profile'] ==
+            'Beezlebub@Cabbagepatch'
+        )
+        assert len(documents[1]) == 1
+        assert (
+            documents[1]['meta']['social_media']['mastodon_profile'] ==
+            'Bombadil@Cottagecheese'
+        )
+
+    def test_projection_exclude_field(self):
+        query = {'age': {'$lte': 20}}
+        projection = {'meta': 0}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+        assert len(documents[0]) == 3
+        assert documents[0]['name'] == 'Bakery Cumbersome'
+        assert documents[0]['age'] == 10
+        assert documents[0]['size'] == 1.6
+        assert len(documents[1]) == 3
+        assert documents[1]['name'] == 'Beezlebub Cabbagepatch'
+        assert documents[1]['age'] == 20
+        assert documents[1]['size'] == 1.7
+
+    def test_projection_exclude_nested_field(self):
+        query = {'age': {'$lte': 20}}
+        projection = {'meta.social_media.mastodon_profile': 0}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+
+        assert len(documents[0]) == 4
+        assert documents[0]['name'] == 'Bakery Cumbersome'
+        assert documents[0]['age'] == 10
+        assert documents[0]['size'] == 1.6
+        assert 'mastodon_profile' not in documents[0]['meta']['social_media']
+        assert documents[0]['meta']['social_media']['mastodon_followers'] == 10
+
+        assert len(documents[1]) == 4
+        assert documents[1]['name'] == 'Beezlebub Cabbagepatch'
+        assert documents[1]['age'] == 20
+        assert documents[1]['size'] == 1.7
+        assert 'mastodon_profile' not in documents[1]['meta']['social_media']
+        assert documents[1]['meta']['social_media']['mastodon_followers'] == 20
+
 
 class TestCollectionFindOne(ReadingOpBaseTest):
 
@@ -302,6 +363,44 @@ class TestCollectionFindOne(ReadingOpBaseTest):
         assert document['age'] == 10
         assert document['name'] == 'Bakery Cumbersome'
 
+    def test_projection_include_field(self):
+        query = {'age': {'$lte': 20}}
+        projection = {'name': 1}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 1
+        assert document['name'] == 'Bakery Cumbersome'
+
+    def test_projection_include_nested_field(self):
+        query = {'name': {'$eq': 'Bakery Cumbersome'}}
+        projection = {'meta.social_media.mastodon_profile': 1}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 1
+        print(document)
+        assert (
+            document['meta']['social_media']['mastodon_profile'] ==
+            'Bakery@Cumbersome'
+        )
+
+    def test_projection_exclude_field(self):
+        query = {'age': {'$lte': 20}}
+        projection = {'meta': 0}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 3
+        assert document['name'] == 'Bakery Cumbersome'
+        assert document['age'] == 10
+        assert document['size'] == 1.6
+
+    def test_projection_exclude_nested_field(self):
+        query = {'age': {'$lte': 20}}
+        projection = {'meta.social_media.mastodon_profile': 0}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 4
+        assert document['name'] == 'Bakery Cumbersome'
+        assert document['age'] == 10
+        assert document['size'] == 1.6
+        assert 'mastodon_profile' not in document['meta']['social_media']
+        assert document['meta']['social_media']['mastodon_followers'] == 10
+
 
 class TestCollectionFindWithIndex(BaseTest):
 
@@ -348,6 +447,52 @@ class TestCollectionFindWithIndex(BaseTest):
             == 'Beezlebub@Cabbagepatch'
         )
 
+    def test_selection_and_projection_on_index_field_only(self):
+        self.db.actors.create_index({'age': int})
+        self.db.actors.insert_many(ACTORS)
+        query = {'age': {'$gt': 10}}
+        projection = {'age': 1}
+        result = self.db.actors.find(query, projection)
+        assert len(result) == 2
+        assert len(result[0]) == 1
+        assert result[0]['age'] == 20
+        assert len(result[1]) == 1
+        assert result[1]['age'] == 30
+
+    def test_projection_include_non_indexed_field(self):
+        self.db.actors.create_index({'age': int})
+        self.db.actors.insert_many(ACTORS)
+        query = {'age': {'$lte': 20}}
+        projection = {'name': 1}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+        assert documents[0]['name'] == 'Bakery Cumbersome'
+        assert documents[1]['name'] == 'Beezlebub Cabbagepatch'
+
+    def test_projection_include_nested_indexed_field(self):
+        self.db.actors.create_index({
+            'meta.social_media.mastodon_profile': str
+        })
+        self.db.actors.insert_many(ACTORS)
+        query = {
+            'meta.social_media.mastodon_profile': {
+                '$ne': 'Bakery@Cumbersome'
+            }
+        }
+        projection = {'meta.social_media.mastodon_profile': 1}
+        documents = self.db.actors.find(query, projection)
+        assert len(documents) == 2
+        assert len(documents[0]) == 1
+        assert (
+            documents[0]['meta']['social_media']['mastodon_profile'] ==
+            'Beezlebub@Cabbagepatch'
+        )
+        assert len(documents[1]) == 1
+        assert (
+            documents[1]['meta']['social_media']['mastodon_profile'] ==
+            'Bombadil@Cottagecheese'
+        )
+
 
 class TestCollectionFindOneWithIndex(BaseTest):
 
@@ -374,6 +519,40 @@ class TestCollectionFindOneWithIndex(BaseTest):
         assert (
             document['meta']['social_media']['mastodon_followers']
             == 20
+        )
+
+    def test_projection_include_indexed_field(self):
+        self.db.actors.create_index({'age': int})
+        self.db.actors.insert_many(ACTORS)
+        query = {'age': {'$lte': 20}}
+        projection = {'age': 1}
+        document = self.db.actors.find_one(query, projection)
+
+        assert len(document) == 1
+        print(document)
+        assert document['age'] == 10
+
+    def test_projection_include_non_indexed_field(self):
+        self.db.actors.create_index({'age': int})
+        self.db.actors.insert_many(ACTORS)
+        query = {'age': {'$lte': 20}}
+        projection = {'name': 1}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 1
+        assert document['name'] == 'Bakery Cumbersome'
+
+    def test_projection_include_nested_indexed_field(self):
+        self.db.actors.create_index({
+            'meta.social_media.mastodon_profile': str
+        })
+        self.db.actors.insert_many(ACTORS)
+        query = {'name': {'$eq': 'Bakery Cumbersome'}}
+        projection = {'meta.social_media.mastodon_profile': 1}
+        document = self.db.actors.find_one(query, projection)
+        assert len(document) == 1
+        assert (
+            document['meta']['social_media']['mastodon_profile'] ==
+            'Bakery@Cumbersome'
         )
 
 

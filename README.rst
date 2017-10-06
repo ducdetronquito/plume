@@ -19,6 +19,7 @@ Done:
     - Support logical operator: **$and**, **$or** 
 - Index creation with **Collection.create_index**
 - Query and index support for nested fields
+- Support query projection
 
 
 To do:
@@ -31,5 +32,4 @@ To do:
 - Add **Collection.delete_many**
 - Add **Collection.drop_index**
 - Add **Collection.drop**
-- Support query projection
 - Support transaction
