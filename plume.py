@@ -202,11 +202,11 @@ class NotEqual(ComparisonSelector):
 
 
 class SelectQuery:
-    __slots__ = ('_indexed_fields', '_limit', '_query_tree', '_table_name')
+    __slots__ = ('_collection', '_indexed_fields', '_limit', '_query_tree')
 
-    def __init__(self, table_name: str, indexed_fields: set,
+    def __init__(self, collection, indexed_fields: set,
                  query: dict, limit: int=None) -> None:
-        self._table_name = table_name
+        self._collection = collection
         self._indexed_fields = indexed_fields
         self._limit = limit
         query = [{key: value} for key, value in query.items()]
@@ -232,7 +232,7 @@ class SelectQuery:
                 return document
 
     def sql_query(self) -> str:
-        select_query = ['SELECT', '_data', 'FROM', self._table_name]
+        select_query = ['SELECT', '_data', 'FROM', self._collection._name]
         where_clause = self._query_tree.sql(self._indexed_fields)
 
         if where_clause is not None:
@@ -242,6 +242,15 @@ class SelectQuery:
             select_query += ['LIMIT', str(self._limit)]
 
         return ' '.join(select_query)
+
+    def execute(self):
+        sql_query = self.sql_query()
+        result = self._collection._db._connection.execute(sql_query).fetchall()
+        documents = (json.loads(row[0]) for row in result)
+
+        if self._limit == 1:
+            return self.match_one(documents)
+        return self.match_many(documents)
 
 
 class Collection:
@@ -334,25 +343,18 @@ class Collection:
             self._register()
 
         select_query = SelectQuery(
-            self._name, self._indexed_fields, query, limit
+            self, self._indexed_fields, query, limit
         )
-        sql_query = select_query.sql_query()
-        result = self._db._connection.execute(sql_query).fetchall()
-        documents = (json.loads(row[0]) for row in result)
-
-        return select_query.match_many(documents)
+        return select_query.execute()
 
     def find_one(self, query: dict, projection: dict=None):
         if not self._registered:
             self._register()
 
         select_query = SelectQuery(
-            self._name, self._indexed_fields, query, 1
+            self, self._indexed_fields, query, 1
         )
-        sql_query = select_query.sql_query()
-        result = self._db._connection.execute(sql_query).fetchall()
-        documents = (json.loads(row[0]) for row in result)
-        return select_query.match_one(documents)
+        return select_query.execute()
 
     def insert_one(self, document: dict) -> None:
         if not self._registered:
