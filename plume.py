@@ -4,6 +4,10 @@ import operator
 import sqlite3
 
 
+ASCENDING = 'ASC'
+DESCENDING = 'DESC'
+
+
 class BadProjection(ValueError):
     pass
 
@@ -239,7 +243,7 @@ class SelectQuery:
     def __init__(self, collection, indexed_fields: set,
                  query: dict, projection: dict=None, limit: int=None) -> None:
         self._collection = collection
-        self._indexed_fields = indexed_fields
+        self._indexed_fields = set(indexed_fields)
         self._limit = limit
         query = [{key: value} for key, value in query.items()]
         self._query_tree = And(query)
@@ -350,7 +354,7 @@ class SelectQuery:
 class Collection:
     __slots__ = (
         '_db', '_formated_indexed_fields', '_indexed_fields',
-        '_name', '_registered'
+        '_indexes', '_name', '_registered'
     )
 
     INDEX_TYPES = {
@@ -363,10 +367,14 @@ class Collection:
         self._db = db
         self._name = name
         self._registered = kwargs.get('registered', False)
-        self._indexed_fields = set(kwargs.get('indexed_fields', []))
-        self._formated_indexed_fields = {
-            '"' + field + '"' for field in self._indexed_fields
-        }
+        self._indexes = kwargs.get('indexes', {})
+        self._indexes.setdefault('indexes', [])
+        self._indexed_fields = self._indexes.setdefault(
+            'indexed_fields', []
+        )
+        self._formated_indexed_fields = self._indexes.setdefault(
+            'formated_indexed_fields', []
+        )
 
     def _register(self):
         if self._registered:
@@ -387,46 +395,71 @@ class Collection:
         self._db._collections[self._name] = self
         self._registered = True
 
-    def create_index(self, index: dict) -> None:
+    def create_index(self, keys: list, **kwargs) -> None:
         if not self._registered:
             self._register()
 
-        # Create a dedicated column for each indexed field.
-        # We add double quotes around index and table names
-        # for sqlite to allow us to use "."
-        formated_indexed_field = []
-        create_column_query = 'ALTER TABLE {} ADD COLUMN {} {}'
-        for field, _type in index.items():
-            field = '"' + field + '"'
-            formated_indexed_field.append(field)
-            self._db._connection.execute(
-                create_column_query.format(
-                    self._name,
-                    field,
-                    self.INDEX_TYPES[_type]
-                )
-            )
+        if isinstance(keys, tuple):
+            keys = [keys]
 
-        # Create the Index on the column previously created.
-        index_name = '_'.join((self._name, 'index', *index.keys()))
-        csv_fields = ', '.join(formated_indexed_field)
-        create_index = 'CREATE INDEX {} ON {}({})'.format(
-            '"' + index_name + '"',
+        # Replace index type with a SQLite compatible type, and
+        # add a default index direction (ASCENDING) if not indicated.
+        keys = [list(key) for key in keys]
+        for key in keys:
+            key[1] = self.INDEX_TYPES[key[1]]
+            if len(key) == 2:
+                key.append(ASCENDING)
+
+        # Check if the index already exists (all key are equivalent)
+        for index in self._indexes['indexes']:
+            if index['keys'] == keys:
+                return
+
+        # Create a new column for non-indexed fields.
+        indexed_fields = self._indexes['indexed_fields']
+        fields_to_index = [key for key in keys if key[0] not in indexed_fields]
+        create_column_query = ''.join(
+            ('ALTER TABLE ', self._name, ' ADD COLUMN "{}" {}')
+        )
+        for field_name, _type, order in fields_to_index:
+            query = create_column_query.format(field_name, _type)
+            self._db._connection.execute(query)
+
+        # Create the index
+        index_name = kwargs.get('name')
+        if index_name is None:
+            index_fields = (key[0] for key in keys)
+            index_name = '_'.join((self._name, 'index', *index_fields))
+
+        formated_indexed_fields = ('"' + key[0] + '"' for key in keys)
+        csv_fields = ', '.join(formated_indexed_fields)
+        create_index = 'CREATE INDEX IF NOT EXISTS "{}" ON {}({})'.format(
+            index_name,
             self._name,
             csv_fields
         )
         self._db._connection.execute(create_index)
 
-        # Register the new index on the master table for given table.
-        for field in index.keys():
-            self._indexed_fields.add(field)
+        # Register the new index in the master table.
+        index = {
+            'name': index_name,
+            'keys': keys,
+        }
+        fields_to_index = [field[0] for field in fields_to_index]
+        self._indexes['indexes'].append(index)
+        self._indexes['indexed_fields'] += fields_to_index
+        self._indexed_fields = self._indexes['indexed_fields']
+        formated_fields_to_index = (
+            '"' + field + '"' for field in fields_to_index
+        )
+        self._indexes['formated_indexed_fields'] += formated_fields_to_index
+        self._formated_indexed_fields = (
+            self._indexes['formated_indexed_fields']
+        )
 
-        for field in formated_indexed_field:
-            self._formated_indexed_fields.add(field)
-
-        json_indexes = json.dumps(list(self._indexed_fields))
+        json_indexes = json.dumps(self._indexes)
         update_master = (
-            'UPDATE plume_master SET indexed_fields = ? '
+            'UPDATE plume_master SET indexes = ? '
             'WHERE collection_name = "{}"'
         ).format(self._name)
         self._db._connection.execute(update_master, [json_indexes])
@@ -480,19 +513,19 @@ class Collection:
 
         fields = ['_data']
         placeholders = ['?']
-        rows = []
-        if self._indexed_fields:
-            fields += list(self._formated_indexed_fields)
+        if not self._indexed_fields:
+            rows = [[json.dumps(document)] for document in documents]
+        else:
+            fields += self._formated_indexed_fields
             placeholders += (len(self._formated_indexed_fields) * ['?'])
-
-        for document in documents:
-            row = [json.dumps(document)]
-            if self._indexed_fields:
+            rows = []
+            for document in documents:
+                row = [json.dumps(document)]
                 row += (
                     _nested_get(document, field)
                     for field in self._indexed_fields
                 )
-            rows.append(row)
+                rows.append(row)
 
         insert_query = 'INSERT INTO {}({}) VALUES ({})'.format(
             self._name,
@@ -516,18 +549,18 @@ class PlumeDB:
             'CREATE TABLE IF NOT EXISTS plume_master ('
             'id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,'
             'collection_name TEXT UNIQUE NOT NULL,'
-            'indexed_fields TEXT DEFAULT "[]")'
+            'indexes TEXT DEFAULT "{}")'
         )
 
         collections = self._connection.execute(
-            'SELECT collection_name, indexed_fields FROM plume_master;'
+            'SELECT collection_name, indexes FROM plume_master;'
         ).fetchall()
 
-        for collection_name, indexed_fields in collections:
+        for collection_name, indexes in collections:
             collection = Collection(
                 self,
                 collection_name,
-                indexed_fields=indexed_fields,
+                indexes=indexes,
                 registered=True,
             )
             self._collections[collection_name] = collection

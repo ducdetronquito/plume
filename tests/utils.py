@@ -70,3 +70,8 @@ def collection_is_registered(db, collection_name):
 def table_info(db, table_name):
     query = 'PRAGMA table_info({})'.format(table_name)
     return db._connection.execute(query).fetchall()
+
+
+def index_list(db, table_name):
+    query = 'PRAGMA index_list({})'.format(table_name)
+    return db._connection.execute(query).fetchall()

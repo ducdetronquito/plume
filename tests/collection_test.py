@@ -3,8 +3,8 @@ import json
 
 # Internal dependencies
 from utils import (
-    ACTORS, BaseTest, collection_is_registered, ReadingOpBaseTest,
-    table_info
+    ACTORS, BaseTest, collection_is_registered, index_list,
+    ReadingOpBaseTest, table_info
 )
 
 
@@ -43,9 +43,7 @@ class TestCollectionInsertOne(BaseTest):
         assert actor['name'] == 'Bakery Cumbersome'
 
     def test_insert_one_with_single_field_index(self):
-        self.db.actors.create_index({
-            'name': str,
-        })
+        self.db.actors.create_index([('name', str)])
         self.db.actors.insert_one({
             'name': 'Bakery Cumbersome'
         })
@@ -59,9 +57,7 @@ class TestCollectionInsertOne(BaseTest):
         assert document[1] == 'Bakery Cumbersome'
 
     def test_insert_one_with_single_field_index_with_missing_field(self):
-        self.db.actors.create_index({
-            'name': str,
-        })
+        self.db.actors.create_index([('name', str)])
         self.db.actors.insert_one({
             'age': 42
         })
@@ -75,9 +71,9 @@ class TestCollectionInsertOne(BaseTest):
         assert document[1] is None
 
     def test_insert_one_with_index_on_single_nest_field(self):
-        self.db.users.create_index({
-            'meta.social_media.mastodon_profile': str,
-        })
+        self.db.users.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         inserted_document = {
             'name': 'Bakery Cumbersome',
             'meta': {
@@ -93,6 +89,19 @@ class TestCollectionInsertOne(BaseTest):
         assert len(document) == 2
         assert json.loads(document[0]) == inserted_document
         assert document[1] == 'Bakery@Cumbersome'
+
+    def test_insert_one_with_multiple_single_field_indexes(self):
+        self.db.actors.create_index([('name', str)])
+        self.db.actors.create_index([('age', int)])
+        self.db.actors.insert_one(ACTORS[0])
+        rows = self.db._connection.execute(
+            'SELECT _data, "name", "age" FROM "actors"'
+        ).fetchall()
+        assert len(rows) == 1
+        row = rows[0]
+        assert json.loads(row[0]) == ACTORS[0]
+        assert row[1] == 'Bakery Cumbersome'
+        assert row[2] == 10
 
 
 class TestCollectionInsertMany(BaseTest):
@@ -118,9 +127,9 @@ class TestCollectionInsertMany(BaseTest):
         assert actor_3['name'] == 'Bombadil Cottagecheese'
 
     def test_insert_with_single_field_index(self):
-        self.db.actors.create_index({
-            'meta.social_media.mastodon_profile': str,
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         self.db.actors.insert_many(ACTORS)
         documents = self.db._connection.execute(
             'SELECT _data, "meta.social_media.mastodon_profile" FROM actors'
@@ -140,9 +149,7 @@ class TestCollectionInsertMany(BaseTest):
         assert documents[2][1] == 'Bombadil@Cottagecheese'
 
     def test_insert_with_single_field_index_with_missing_field(self):
-        self.db.actors.create_index({
-            'name': str,
-        })
+        self.db.actors.create_index([('name', str)])
         self.db.actors.insert_many([
             {'name': 'Bakery Cumbersome'},
             {'age': 42},
@@ -166,9 +173,7 @@ class TestCollectionInsertMany(BaseTest):
         assert documents[2][1] == 'Bombadil Cottagecheese'
 
     def test_insert_with_single_nested_field_index(self):
-        self.db.actors.create_index({
-            'name': str,
-        })
+        self.db.actors.create_index([('name', str)])
         self.db.actors.insert_many(ACTORS)
         documents = self.db._connection.execute(
             'SELECT _data, name FROM actors'
@@ -186,6 +191,24 @@ class TestCollectionInsertMany(BaseTest):
         actor_3 = json.loads(documents[2][0])
         assert actor_3['name'] == 'Bombadil Cottagecheese'
         assert documents[2][1] == 'Bombadil Cottagecheese'
+
+    def test_insert_many_with_multiple_single_field_indexes(self):
+        self.db.actors.create_index([('name', str)])
+        self.db.actors.create_index([('age', int)])
+        self.db.actors.insert_many(ACTORS)
+        rows = self.db._connection.execute(
+            'SELECT _data, "name", "age" FROM "actors"'
+        ).fetchall()
+        assert len(rows) == 3
+        assert json.loads(rows[0][0]) == ACTORS[0]
+        assert rows[0][1] == 'Bakery Cumbersome'
+        assert rows[0][2] == 10
+        assert json.loads(rows[1][0]) == ACTORS[1]
+        assert rows[1][1] == 'Beezlebub Cabbagepatch'
+        assert rows[1][2] == 20
+        assert json.loads(rows[2][0]) == ACTORS[2]
+        assert rows[2][1] == 'Bombadil Cottagecheese'
+        assert rows[2][2] == 30
 
 
 class TestCollectionFind(ReadingOpBaseTest):
@@ -405,7 +428,7 @@ class TestCollectionFindOne(ReadingOpBaseTest):
 class TestCollectionFindWithIndex(BaseTest):
 
     def test_find_on_single_indexed_text_field(self):
-        self.db.users.create_index({'name': str})
+        self.db.users.create_index([('name', str)])
         self.db.users.insert_one({'name': 'Boby', 'age': 10})
         self.db.users.insert_one({'name': 'John', 'age': 20})
         self.db.users.insert_one({'name': 'Poopy', 'age': 30})
@@ -417,7 +440,7 @@ class TestCollectionFindWithIndex(BaseTest):
         assert result[0]['name'] == 'John'
 
     def test_find_on_single_indexed_integer_field(self):
-        self.db.users.create_index({'age': int})
+        self.db.users.create_index([('age', int)])
         self.db.users.insert_one({'name': 'Boby', 'age': 10})
         self.db.users.insert_one({'name': 'John', 'age': 20})
         self.db.users.insert_one({'name': 'Poopy', 'age': 30})
@@ -431,9 +454,9 @@ class TestCollectionFindWithIndex(BaseTest):
         assert result[1]['name'] == 'Poopy'
 
     def test_find_on_nested_indexed_field(self):
-        self.db.actors.create_index({
-            'meta.social_media.mastodon_profile': str
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         self.db.actors.insert_many(ACTORS)
         result = self.db.actors.find({
             'meta.social_media.mastodon_profile': {
@@ -448,7 +471,7 @@ class TestCollectionFindWithIndex(BaseTest):
         )
 
     def test_selection_and_projection_on_index_field_only(self):
-        self.db.actors.create_index({'age': int})
+        self.db.actors.create_index([('age', int)])
         self.db.actors.insert_many(ACTORS)
         query = {'age': {'$gt': 10}}
         projection = {'age': 1}
@@ -460,7 +483,7 @@ class TestCollectionFindWithIndex(BaseTest):
         assert result[1]['age'] == 30
 
     def test_projection_include_non_indexed_field(self):
-        self.db.actors.create_index({'age': int})
+        self.db.actors.create_index([('age', int)])
         self.db.actors.insert_many(ACTORS)
         query = {'age': {'$lte': 20}}
         projection = {'name': 1}
@@ -470,9 +493,9 @@ class TestCollectionFindWithIndex(BaseTest):
         assert documents[1]['name'] == 'Beezlebub Cabbagepatch'
 
     def test_projection_include_nested_indexed_field(self):
-        self.db.actors.create_index({
-            'meta.social_media.mastodon_profile': str
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         self.db.actors.insert_many(ACTORS)
         query = {
             'meta.social_media.mastodon_profile': {
@@ -497,7 +520,7 @@ class TestCollectionFindWithIndex(BaseTest):
 class TestCollectionFindOneWithIndex(BaseTest):
 
     def test_find_on_single_indexed_integer_field(self):
-        self.db.actors.create_index({'age': int})
+        self.db.actors.create_index([('age', int)])
         self.db.actors.insert_many(ACTORS)
         document = self.db.actors.find_one({
             'age': {'$gt': 10}
@@ -506,9 +529,9 @@ class TestCollectionFindOneWithIndex(BaseTest):
         assert document['age'] == 20
 
     def test_find_on_nested_indexed_field(self):
-        self.db.actors.create_index({
-            'meta.social_media.mastodon_followers': int
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_followers', int)
+        ])
         self.db.actors.insert_many(ACTORS)
         document = self.db.actors.find_one({
             'meta.social_media.mastodon_followers': {
@@ -522,7 +545,7 @@ class TestCollectionFindOneWithIndex(BaseTest):
         )
 
     def test_projection_include_indexed_field(self):
-        self.db.actors.create_index({'age': int})
+        self.db.actors.create_index([('age', int)])
         self.db.actors.insert_many(ACTORS)
         query = {'age': {'$lte': 20}}
         projection = {'age': 1}
@@ -533,7 +556,7 @@ class TestCollectionFindOneWithIndex(BaseTest):
         assert document['age'] == 10
 
     def test_projection_include_non_indexed_field(self):
-        self.db.actors.create_index({'age': int})
+        self.db.actors.create_index([('age', int)])
         self.db.actors.insert_many(ACTORS)
         query = {'age': {'$lte': 20}}
         projection = {'name': 1}
@@ -542,9 +565,9 @@ class TestCollectionFindOneWithIndex(BaseTest):
         assert document['name'] == 'Bakery Cumbersome'
 
     def test_projection_include_nested_indexed_field(self):
-        self.db.actors.create_index({
-            'meta.social_media.mastodon_profile': str
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         self.db.actors.insert_many(ACTORS)
         query = {'name': {'$eq': 'Bakery Cumbersome'}}
         projection = {'meta.social_media.mastodon_profile': 1}
@@ -559,65 +582,228 @@ class TestCollectionFindOneWithIndex(BaseTest):
 class TestCollectionCreateIndex(BaseTest):
 
     def test_create_index_on_single_text_field(self):
-        self.db.users.create_index({
-            'name': str,
-        })
+        self.db.actors.create_index([
+            ('name', str)
+        ])
         row = self.db._connection.execute(
-            'SELECT indexed_fields FROM plume_master '
-            'WHERE collection_name = "users";'
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
         ).fetchone()
-        indexed_fields = json.loads(row[0])
-        assert len(indexed_fields) == 1
-        assert indexed_fields[0] == 'name'
-        columns = table_info(self.db, 'users')
+        indexes = json.loads(row[0])
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [['name', 'TEXT', 'ASC']],
+                    'name': 'actors_index_name'
+                }
+            ],
+            'indexed_fields': ['name'],
+            'formated_indexed_fields': ['"name"']
+        }
+
+        columns = table_info(self.db, 'actors')
         assert len(columns) == 3
         assert columns[2][1] == 'name'
         assert columns[2][2] == 'TEXT'
 
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == 'actors_index_name'
+
     def test_create_index_on_single_integer_field(self):
-        self.db.users.create_index({
-            'age': int,
-        })
+        self.db.actors.create_index([
+            ('age', int)
+        ])
         row = self.db._connection.execute(
-            'SELECT indexed_fields FROM plume_master '
-            'WHERE collection_name = "users";'
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
         ).fetchone()
-        indexed_fields = json.loads(row[0])
-        assert len(indexed_fields) == 1
-        assert indexed_fields[0] == 'age'
-        columns = table_info(self.db, 'users')
+        indexes = json.loads(row[0])
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [['age', 'INTEGER', 'ASC']],
+                    'name': 'actors_index_age'
+                }
+            ],
+            'indexed_fields': ['age'],
+            'formated_indexed_fields': ['"age"']
+        }
+
+        columns = table_info(self.db, 'actors')
         assert len(columns) == 3
         assert columns[2][1] == 'age'
         assert columns[2][2] == 'INTEGER'
 
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == 'actors_index_age'
+
     def test_create_index_on_single_real_field(self):
-        self.db.users.create_index({
-            'size': float,
-        })
+        self.db.actors.create_index([
+            ('size', float)
+        ])
         row = self.db._connection.execute(
-            'SELECT indexed_fields FROM plume_master '
-            'WHERE collection_name = "users";'
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
         ).fetchone()
-        indexed_fields = json.loads(row[0])
-        assert len(indexed_fields) == 1
-        assert indexed_fields[0] == 'size'
-        columns = table_info(self.db, 'users')
+        indexes = json.loads(row[0])
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [['size', 'REAL', 'ASC']],
+                    'name': 'actors_index_size'
+                }
+            ],
+            'indexed_fields': ['size'],
+            'formated_indexed_fields': ['"size"']
+        }
+
+        columns = table_info(self.db, 'actors')
         assert len(columns) == 3
         assert columns[2][1] == 'size'
         assert columns[2][2] == 'REAL'
 
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == 'actors_index_size'
+
     def test_create_index_on_nested_field(self):
-        self.db.users.create_index({
-            'meta.social_media.mastodon_profile': str,
-        })
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
         row = self.db._connection.execute(
-            'SELECT indexed_fields FROM plume_master '
-            'WHERE collection_name = "users";'
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
         ).fetchone()
-        indexed_fields = json.loads(row[0])
-        assert len(indexed_fields) == 1
-        assert indexed_fields[0] == 'meta.social_media.mastodon_profile'
-        columns = table_info(self.db, 'users')
+        indexes = json.loads(row[0])
+
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [
+                        ['meta.social_media.mastodon_profile', 'TEXT', 'ASC']
+                    ],
+                    'name': 'actors_index_meta.social_media.mastodon_profile'
+                }
+            ],
+            'indexed_fields': ['meta.social_media.mastodon_profile'],
+            'formated_indexed_fields': ['"meta.social_media.mastodon_profile"']
+        }
+
+        columns = table_info(self.db, 'actors')
         assert len(columns) == 3
         assert columns[2][1] == 'meta.social_media.mastodon_profile'
         assert columns[2][2] == 'TEXT'
+
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == (
+            'actors_index_meta.social_media.mastodon_profile'
+        )
+
+    def test_create_multiple_single_field_indexes(self):
+        self.db.actors.create_index([
+            ('name', str),
+        ])
+        self.db.actors.create_index([
+            ('age', int),
+        ])
+        row = self.db._connection.execute(
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
+        ).fetchone()
+        indexes = json.loads(row[0])
+
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [['name', 'TEXT', 'ASC']],
+                    'name': 'actors_index_name'
+                },
+                {
+                    'keys': [['age', 'INTEGER', 'ASC']],
+                    'name': 'actors_index_age'
+                }
+            ],
+            'indexed_fields': ['name', 'age'],
+            'formated_indexed_fields': ['"name"', '"age"']
+        }
+
+        columns = table_info(self.db, 'actors')
+        assert len(columns) == 4
+        assert columns[2][1] == 'name'
+        assert columns[2][2] == 'TEXT'
+        assert columns[3][1] == 'age'
+        assert columns[3][2] == 'INTEGER'
+
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 2
+        assert indexes[0][1] == 'actors_index_age'
+        assert indexes[1][1] == 'actors_index_name'
+
+    def test_create_index_with_multiple_fields(self):
+        self.db.actors.create_index([
+            ('name', str),
+            ('age', int),
+        ])
+        row = self.db._connection.execute(
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
+        ).fetchone()
+        indexes = json.loads(row[0])
+
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [
+                        ['name', 'TEXT', 'ASC'],
+                        ['age', 'INTEGER', 'ASC'],
+                    ],
+                    'name': 'actors_index_name_age'
+                }
+            ],
+            'indexed_fields': ['name', 'age'],
+            'formated_indexed_fields': ['"name"', '"age"']
+        }
+        columns = table_info(self.db, 'actors')
+        assert len(columns) == 4
+        assert columns[2][1] == 'name'
+        assert columns[2][2] == 'TEXT'
+        assert columns[3][1] == 'age'
+        assert columns[3][2] == 'INTEGER'
+
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == 'actors_index_name_age'
+
+    def test_create_index_on_same_field(self):
+        self.db.actors.create_index([
+            ('name', str),
+        ])
+        self.db.actors.create_index([
+            ('name', str),
+        ])
+        row = self.db._connection.execute(
+            'SELECT indexes FROM plume_master '
+            'WHERE collection_name = "actors";'
+        ).fetchone()
+        indexes = json.loads(row[0])
+        assert indexes == {
+            'indexes': [
+                {
+                    'keys': [['name', 'TEXT', 'ASC']],
+                    'name': 'actors_index_name'
+                }
+            ],
+            'indexed_fields': ['name'],
+            'formated_indexed_fields': ['"name"']
+        }
+        columns = table_info(self.db, 'actors')
+        assert len(columns) == 3
+        assert columns[2][1] == 'name'
+        assert columns[2][2] == 'TEXT'
+
+        indexes = index_list(self.db, '"actors"')
+        assert len(indexes) == 1
+        assert indexes[0][1] == 'actors_index_name'
