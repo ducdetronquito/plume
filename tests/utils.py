@@ -2,7 +2,7 @@
 import os
 
 # Internal dependencies
-from plume import PlumeDB
+from plume import Database
 
 ACTORS = [
     {
@@ -43,7 +43,7 @@ ACTORS = [
 
 class BaseTest:
     def setup(self):
-        self.db = PlumeDB('test.db')
+        self.db = Database('test.db')
 
     def teardown(self):
         os.remove('test.db')
@@ -51,7 +51,7 @@ class BaseTest:
 
 class ReadingOpBaseTest:
     def setup_class(cls):
-        cls.db = PlumeDB('test.db')
+        cls.db = Database('test.db')
 
     def teardown_class(self):
         os.remove('test.db')

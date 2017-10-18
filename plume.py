@@ -537,13 +537,13 @@ class Collection:
         self._db._connection.commit()
 
 
-class PlumeDB:
-    __slots__ = ('_collections', '_connection', '_db_name',)
+class Database:
+    __slots__ = ('_collections', '_connection', '_name',)
 
-    def __init__(self, db_name: str) -> None:
-        self._db_name = db_name
+    def __init__(self, name: str) -> None:
+        self._name = name
         self._collections = {}
-        self._connection = sqlite3.connect(self._db_name)
+        self._connection = sqlite3.connect(self._name)
 
         self._connection.execute(
             'CREATE TABLE IF NOT EXISTS plume_master ('
