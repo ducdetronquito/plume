@@ -10,3 +10,6 @@ plume.egg-info/*
 .cache/*
 .mypy_cache/*
 
+# Coverage
+.coverage
+htmlcov/*
