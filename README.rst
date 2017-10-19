@@ -32,11 +32,11 @@ Benefits
 
 Inspired from `Goatfish <https://github.com/skorokithakis/goatfish>`_, **Plume** provides:
 
-* 😍 A concise API similar to MongoDB's API.
-* ☔ ACID transactions thanks to SQLite3.
-* 💡 Complex query with and/or operators and projections.
+* 😍 Concise API similar to MongoDB's API.
+* 🔒 ACID transactions thanks to SQLite3.
+* 💡 Complex queries with and/or operators and projections.
 * ⚡ Indexes on collection, even on nested fields.
-* 👌 Well tested.
+* 👌 Extended test suite.
 
 
 Installation
