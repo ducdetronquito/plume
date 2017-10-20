@@ -115,7 +115,7 @@ class TestSQLSelection:
         sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            '"name" = "Mario" OR "name" = "Luigi"'
+            '(("name" = "Mario") OR ("name" = "Luigi"))'
         )
         assert sql_query == expected
 
@@ -132,11 +132,11 @@ class TestSQLSelection:
         sql_query = select_query._sql_query()
         expected_1 = (
             'SELECT _data FROM users WHERE '
-            '"age" = 42 AND "name" = "Mario" OR "name" = "Luigi"'
+            '"age" = 42 AND (("name" = "Mario") OR ("name" = "Luigi"))'
         )
         expected_2 = (
             'SELECT _data FROM users WHERE '
-            '"name" = "Mario" OR "name" = "Luigi" AND "age" = 42'
+            '(("name" = "Mario") OR ("name" = "Luigi")) AND "age" = 42'
         )
         assert sql_query == expected_1 or sql_query == expected_2
 
@@ -158,7 +158,8 @@ class TestSQLSelection:
         sql_query = select_query._sql_query()
         expected = (
             'SELECT _data FROM users WHERE '
-            '"name" = "Mario" OR "name" = "Luigi" OR "age" > 18 AND "age" < 42'
+            '(("name" = "Mario") OR ("name" = "Luigi")'
+            ' OR ("age" > 18 AND "age" < 42))'
         )
         assert sql_query == expected
 

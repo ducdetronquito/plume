@@ -151,9 +151,9 @@ class Or(Selector):
         if len(index_clauses) != len(self._selectors):
             return None
 
-        or_clause = ' OR '.join(clause for clause in index_clauses)
+        or_clause = ' OR '.join('(' + clause + ')' for clause in index_clauses)
         self._selectors = []
-        return or_clause
+        return '(' + or_clause + ')'
 
 
 class ComparisonSelector(Selector):
