@@ -7,8 +7,8 @@ Plume
 .. image:: https://img.shields.io/badge/coverage-95%25-green.svg
     :target: #
 
-.. image:: https://img.shields.io/badge/pypi-v0.2.4-blue.svg
-    :target: https://pypi.python.org/pypi/scalpl/
+.. image:: https://travis-ci.org/ducdetronquito/plume.svg?branch=master
+     :target: https://travis-ci.org/ducdetronquito/plume
 
 
 Outline
