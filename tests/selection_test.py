@@ -48,8 +48,9 @@ class TestSQLSelection:
         query = {'age': {'$gt': 18, '$lt': 42}}
         select_query = SelectQuery(self._collection, indexed_fields, query)
         sql_query = select_query._sql_query()
-        expected = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
-        assert sql_query == expected
+        expected_1 = 'SELECT _data FROM users WHERE "age" > 18 AND "age" < 42'
+        expected_2 = 'SELECT _data FROM users WHERE "age" < 42 AND "age" > 18'
+        assert (sql_query == expected_1 or sql_query == expected_2)
 
     def test_select_implicit_and_on_non_indexed_field(self):
         indexed_fields = set(['name'])
@@ -95,11 +96,12 @@ class TestSQLSelection:
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
         sql_query = select_query._sql_query()
-        expected = (
-            'SELECT _data FROM users WHERE '
-            '"age" > 18 AND "age" < 42 AND "size" > 1.6 AND "size" < 1.9'
-        )
-        assert sql_query == expected
+        assert sql_query.startswith('SELECT _data FROM users WHERE ')
+        assert '"age" > 18' in sql_query
+        assert '"age" < 42' in sql_query
+        assert '"size" > 1.6' in sql_query
+        assert '"size" < 1.9' in sql_query
+        assert sql_query.count('AND') == 3
 
     def test_select_or_on_same_indexed_field(self):
         indexed_fields = set(['name'])
@@ -128,11 +130,15 @@ class TestSQLSelection:
         }
         select_query = SelectQuery(self._collection, indexed_fields, query)
         sql_query = select_query._sql_query()
-        expected = (
+        expected_1 = (
             'SELECT _data FROM users WHERE '
             '"age" = 42 AND "name" = "Mario" OR "name" = "Luigi"'
         )
-        assert sql_query == expected
+        expected_2 = (
+            'SELECT _data FROM users WHERE '
+            '"name" = "Mario" OR "name" = "Luigi" AND "age" = 42'
+        )
+        assert sql_query == expected_1 or sql_query == expected_2
 
     def test_select_or_with_nested_and_clause(self):
         indexed_fields = set(['age', 'name'])

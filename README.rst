@@ -2,7 +2,7 @@ Plume
 =====
 
 .. image:: https://img.shields.io/badge/license-public%20domain-ff69b4.svg
-    :target: https://github.com/ducdetronquito/scalpl#license
+    :target: https://github.com/ducdetronquito/plume#license
 
 .. image:: https://img.shields.io/badge/coverage-95%25-green.svg
     :target: #
