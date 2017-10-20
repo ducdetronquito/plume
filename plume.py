@@ -395,43 +395,69 @@ class Collection:
         self._db._collections[self._name] = self
         self._registered = True
 
-    def create_index(self, keys: list, **kwargs) -> None:
-        if not self._registered:
-            self._register()
+    def _prepare_index_keys(self, keys: list) -> list:
+        """
+            Returns a valid list of index keys.
 
+            An index key is a list of 3 values that describe an index
+            on a field. These 3 values are the field name, the field type,
+            and the index order.
+        """
+        # Allows the user to use a shortcut for single field index
+        # by providing only a tuple of keys.
         if isinstance(keys, tuple):
             keys = [keys]
 
         # Replace index type with a SQLite compatible type, and
         # add a default index direction (ASCENDING) if not indicated.
-        keys = [list(key) for key in keys]
-        for key in keys:
+        index_keys = [list(key) for key in keys]
+        for key in index_keys:
             key[1] = self.INDEX_TYPES[key[1]]
             if len(key) == 2:
                 key.append(ASCENDING)
 
-        # Check if the index already exists (all key are equivalent)
-        for index in self._indexes['indexes']:
-            if index['keys'] == keys:
-                return
+        return index_keys
 
-        # Create a new column for non-indexed fields.
+    def _prepare_index_columns(self, index_keys: list) -> list:
+        """Create a new column for non-indexed fields."""
         indexed_fields = self._indexes['indexed_fields']
-        fields_to_index = [key for key in keys if key[0] not in indexed_fields]
+        keys_to_index = [
+            key for key in index_keys
+            if key[0] not in indexed_fields
+        ]
         create_column_query = ''.join(
             ('ALTER TABLE ', self._name, ' ADD COLUMN "{}" {}')
         )
-        for field_name, _type, order in fields_to_index:
+        for field_name, _type, order in keys_to_index:
             query = create_column_query.format(field_name, _type)
             self._db._connection.execute(query)
 
+        fields_to_index = [key[0] for key in keys_to_index]
+        return fields_to_index
+
+    def create_index(self, keys: list, **kwargs) -> None:
+        if not self._registered:
+            self._register()
+
+        index_keys = self._prepare_index_keys(keys)
+
+        # Check if the index already exists (all key are equivalent)
+        for index in self._indexes['indexes']:
+            if index['keys'] == index_keys:
+                return
+
+        # Create a new column for non-indexed fields
+        new_indexed_fields = self._prepare_index_columns(index_keys)
+
         # Create the index
         index_name = kwargs.get('name')
+        indexed_fields = [key[0] for key in index_keys]
         if index_name is None:
-            index_fields = (key[0] for key in keys)
-            index_name = '_'.join((self._name, 'index', *index_fields))
+            index_name = '_'.join((self._name, 'index', *indexed_fields))
 
-        formated_indexed_fields = ('"' + key[0] + '"' for key in keys)
+        formated_indexed_fields = [
+            '"' + field + '"' for field in indexed_fields
+        ]
         csv_fields = ', '.join(formated_indexed_fields)
         create_index = 'CREATE INDEX IF NOT EXISTS "{}" ON {}({})'.format(
             index_name,
@@ -443,16 +469,15 @@ class Collection:
         # Register the new index in the master table.
         index = {
             'name': index_name,
-            'keys': keys,
+            'keys': index_keys,
         }
-        fields_to_index = [field[0] for field in fields_to_index]
         self._indexes['indexes'].append(index)
-        self._indexes['indexed_fields'] += fields_to_index
+        self._indexes['indexed_fields'] += new_indexed_fields
         self._indexed_fields = self._indexes['indexed_fields']
-        formated_fields_to_index = (
-            '"' + field + '"' for field in fields_to_index
-        )
-        self._indexes['formated_indexed_fields'] += formated_fields_to_index
+        new_formated_indexed_fields = [
+            '"' + field + '"' for field in new_indexed_fields
+        ]
+        self._indexes['formated_indexed_fields'] += new_formated_indexed_fields
         self._formated_indexed_fields = (
             self._indexes['formated_indexed_fields']
         )
