@@ -435,6 +435,38 @@ class Collection:
         fields_to_index = [key[0] for key in keys_to_index]
         return fields_to_index
 
+    def _feed_index(self, indexed_fields: list) -> None:
+
+        row_number = self._db._connection.execute(
+            'SELECT count(id) FROM ' + self._name
+        ).fetchone()[0]
+
+        if row_number == 0:
+            return
+
+        formated_indexed_fields = [
+            '"' + field + '"' for field in indexed_fields
+        ]
+        select_query = 'SELECT id, _data FROM ' + self._name
+        csv_fields = ' = ?, '.join(formated_indexed_fields)
+        csv_fields += ' = ?'
+        update_query = (
+            'UPDATE ' + self._name + ' SET ' + csv_fields + ' WHERE id = ?'
+        )
+        try:
+            self._db._connection.execute('BEGIN')
+            cursor = self._db._connection.execute(select_query)
+            for _id, document in cursor.fetchall():
+                document = json.loads(document)
+                index_values = [
+                    _nested_get(document, field) for field in indexed_fields
+                ]
+                index_values.append(_id)
+                self._db._connection.execute(update_query, index_values)
+            self._db._connection.execute('COMMIT')
+        except sqlite3.Error:
+            self._db._connection.execute('ROLLBACK')
+
     def create_index(self, keys: list, **kwargs) -> None:
         if not self._registered:
             self._register()
@@ -448,6 +480,9 @@ class Collection:
 
         # Create a new column for non-indexed fields
         new_indexed_fields = self._prepare_index_columns(index_keys)
+
+        # Copy data from document to new index column
+        self._feed_index(new_indexed_fields)
 
         # Create the index
         index_name = kwargs.get('name')
@@ -568,7 +603,7 @@ class Database:
     def __init__(self, name: str) -> None:
         self._name = name
         self._collections = {}
-        self._connection = sqlite3.connect(self._name)
+        self._connection = sqlite3.connect(self._name, isolation_level=None)
 
         self._connection.execute(
             'CREATE TABLE IF NOT EXISTS plume_master ('

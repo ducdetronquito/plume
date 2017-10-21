@@ -2,7 +2,7 @@
 import json
 
 # Internal dependencies
-from utils import BaseTest, index_list, table_info
+from utils import ACTORS, BaseTest, index_list, table_info
 
 
 class TestCollectionCreateIndex(BaseTest):
@@ -233,3 +233,87 @@ class TestCollectionCreateIndex(BaseTest):
         indexes = index_list(self.db, '"actors"')
         assert len(indexes) == 1
         assert indexes[0][1] == 'actors_index_name'
+
+
+class TestCollectionCreateIndexOnExistingData(BaseTest):
+
+    def test_create_index_on_single_text_field(self):
+        self.db.actors.insert_many(ACTORS)
+        self.db.actors.create_index([
+            ('name', str)
+        ])
+
+        rows = self.db._connection.execute(
+            'SELECT _data, name FROM actors'
+        ).fetchall()
+
+        assert len(rows) == 3
+        assert json.loads(rows[0][0]) == ACTORS[0]
+        assert rows[0][1] == ACTORS[0]['name']
+        assert json.loads(rows[1][0]) == ACTORS[1]
+        assert rows[1][1] == ACTORS[1]['name']
+        assert json.loads(rows[2][0]) == ACTORS[2]
+        assert rows[2][1] == ACTORS[2]['name']
+
+    def test_create_index_on_single_integer_field(self):
+        self.db.actors.insert_many(ACTORS)
+        self.db.actors.create_index([
+            ('age', int)
+        ])
+        rows = self.db._connection.execute(
+            'SELECT _data, age FROM actors'
+        ).fetchall()
+
+        assert len(rows) == 3
+        assert json.loads(rows[0][0]) == ACTORS[0]
+        assert rows[0][1] == ACTORS[0]['age']
+        assert json.loads(rows[1][0]) == ACTORS[1]
+        assert rows[1][1] == ACTORS[1]['age']
+        assert json.loads(rows[2][0]) == ACTORS[2]
+        assert rows[2][1] == ACTORS[2]['age']
+
+    def test_create_index_on_nested_field(self):
+        self.db.actors.insert_many(ACTORS)
+        self.db.actors.create_index([
+            ('meta.social_media.mastodon_profile', str)
+        ])
+        rows = self.db._connection.execute(
+            'SELECT _data, "meta.social_media.mastodon_profile" FROM actors'
+        ).fetchall()
+
+        assert len(rows) == 3
+        assert json.loads(rows[0][0]) == ACTORS[0]
+        assert (
+            rows[0][1] == ACTORS[0]['meta']['social_media']['mastodon_profile']
+        )
+        assert json.loads(rows[1][0]) == ACTORS[1]
+        assert (
+            rows[1][1] == ACTORS[1]['meta']['social_media']['mastodon_profile']
+        )
+        assert json.loads(rows[2][0]) == ACTORS[2]
+        assert (
+            rows[2][1] == ACTORS[2]['meta']['social_media']['mastodon_profile']
+        )
+
+    def test_create_multiple_single_field_indexes(self):
+        self.db.actors.insert_many(ACTORS)
+        self.db.actors.create_index([
+            ('name', str),
+        ])
+        self.db.actors.create_index([
+            ('age', int),
+        ])
+        rows = self.db._connection.execute(
+            'SELECT _data, name, age FROM actors'
+        ).fetchall()
+
+        assert len(rows) == 3
+        assert json.loads(rows[0][0]) == ACTORS[0]
+        assert rows[0][1] == ACTORS[0]['name']
+        assert rows[0][2] == ACTORS[0]['age']
+        assert json.loads(rows[1][0]) == ACTORS[1]
+        assert rows[1][1] == ACTORS[1]['name']
+        assert rows[1][2] == ACTORS[1]['age']
+        assert json.loads(rows[2][0]) == ACTORS[2]
+        assert rows[2][1] == ACTORS[2]['name']
+        assert rows[2][2] == ACTORS[2]['age']
