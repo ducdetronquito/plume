@@ -234,6 +234,42 @@ class NotEqual(ComparisonSelector):
             ])
 
 
+class Transaction:
+    """
+        A transactional context manager.
+
+        Within a Transation a RESERVED lock is acquired immediately,
+        meaning that only concurrent reading operations are allowed during
+        this time.
+    """
+    __slots__ = ('_connection')
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    def __enter__(self):
+        self._connection.execute('BEGIN IMMEDIATE')
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self._connection.execute('ROLLBACK')
+        else:
+            self._connection.execute('COMMIT')
+
+
+def transactional(fun):
+    """Decorator that wrap an operation into a transaction."""
+    def transactional_wrapper(*args, **kwargs):
+        connection = args[0]._db._connection
+        if connection.in_transaction:
+            return fun(*args, **kwargs)
+
+        with Transaction(connection):
+            return fun(*args, **kwargs)
+
+    return transactional_wrapper
+
+
 class SelectQuery:
     __slots__ = (
         '_collection', '_exclude_fields', '_include_fields',
@@ -376,6 +412,7 @@ class Collection:
             'formated_indexed_fields', []
         )
 
+    @transactional
     def _register(self):
         if self._registered:
             return
@@ -391,7 +428,7 @@ class Collection:
             'INSERT INTO plume_master(collection_name)'
             ' VALUES (?)', (self._name,)
         )
-        self._db._connection.commit()
+
         self._db._collections[self._name] = self
         self._registered = True
 
@@ -436,7 +473,6 @@ class Collection:
         return fields_to_index
 
     def _feed_index(self, indexed_fields: list) -> None:
-
         row_number = self._db._connection.execute(
             'SELECT count(id) FROM ' + self._name
         ).fetchone()[0]
@@ -453,20 +489,16 @@ class Collection:
         update_query = (
             'UPDATE ' + self._name + ' SET ' + csv_fields + ' WHERE id = ?'
         )
-        try:
-            self._db._connection.execute('BEGIN')
-            cursor = self._db._connection.execute(select_query)
-            for _id, document in cursor.fetchall():
-                document = json.loads(document)
-                index_values = [
-                    _nested_get(document, field) for field in indexed_fields
-                ]
-                index_values.append(_id)
-                self._db._connection.execute(update_query, index_values)
-            self._db._connection.execute('COMMIT')
-        except sqlite3.Error:
-            self._db._connection.execute('ROLLBACK')
+        cursor = self._db._connection.execute(select_query)
+        for _id, document in cursor.fetchall():
+            document = json.loads(document)
+            index_values = [
+                _nested_get(document, field) for field in indexed_fields
+            ]
+            index_values.append(_id)
+            self._db._connection.execute(update_query, index_values)
 
+    @transactional
     def create_index(self, keys: list, **kwargs) -> None:
         if not self._registered:
             self._register()
@@ -543,6 +575,7 @@ class Collection:
         )
         return select_query.execute()
 
+    @transactional
     def insert_one(self, document: dict) -> None:
         if not self._registered:
             self._register()
@@ -565,8 +598,8 @@ class Collection:
             ', '.join(placeholders)
         )
         self._db._connection.execute(insert_one_query, values)
-        self._db._connection.commit()
 
+    @transactional
     def insert_many(self, documents: list) -> None:
         if not self._registered:
             self._register()
@@ -594,7 +627,6 @@ class Collection:
         )
 
         self._db._connection.executemany(insert_query, rows)
-        self._db._connection.commit()
 
 
 class Database:
@@ -605,12 +637,13 @@ class Database:
         self._collections = {}
         self._connection = sqlite3.connect(self._name, isolation_level=None)
 
-        self._connection.execute(
-            'CREATE TABLE IF NOT EXISTS plume_master ('
-            'id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,'
-            'collection_name TEXT UNIQUE NOT NULL,'
-            'indexes TEXT DEFAULT "{}")'
-        )
+        with Transaction(self._connection):
+            self._connection.execute(
+                'CREATE TABLE IF NOT EXISTS plume_master ('
+                'id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,'
+                'collection_name TEXT UNIQUE NOT NULL,'
+                'indexes TEXT DEFAULT "{}")'
+            )
 
         collections = self._connection.execute(
             'SELECT collection_name, indexes FROM plume_master;'
