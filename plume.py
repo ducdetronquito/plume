@@ -460,17 +460,144 @@ class ReplaceQuery:
         self._collection._db._connection.execute(update_query, values)
 
 
-class Collection:
-    __slots__ = (
-        '_db', '_formated_indexed_fields', '_indexed_fields',
-        '_indexes', '_name', '_registered'
-    )
+class CreateIndexQuery:
+    __slots__ = ('_collection', '_keys', '_options')
 
     INDEX_TYPES = {
         str: 'TEXT',
         int: 'INTEGER',
         float: 'REAL',
     }
+
+    def __init__(self, collection, keys: list, **kwargs) -> None:
+        self._collection = collection
+        self._keys = keys
+        self._options = kwargs
+
+    def _prepare_index_keys(self, keys: list) -> list:
+        """
+            Returns a valid list of index keys.
+
+            An index key is a list of 3 values that describe an index
+            on a field. These 3 values are the field name, the field type,
+            and the index order.
+        """
+        # Allows the user to use a shortcut for single field index
+        # by providing only a tuple of keys.
+        if isinstance(keys, tuple):
+            keys = [keys]
+
+        # Replace index type with a SQLite compatible type, and
+        # add a default index direction (ASCENDING) if not indicated.
+        index_keys = [list(key) for key in keys]
+        for key in index_keys:
+            key[1] = self.INDEX_TYPES[key[1]]
+            if len(key) == 2:
+                key.append(ASCENDING)
+
+        return index_keys
+
+    def _prepare_index_columns(self, index_keys: list) -> list:
+        """Create a new column for non-indexed fields."""
+        indexed_fields = self._collection._indexes['indexed_fields']
+        keys_to_index = [
+            key for key in index_keys
+            if key[0] not in indexed_fields
+        ]
+        create_column_query = ''.join(
+            ('ALTER TABLE ', self._collection._name, ' ADD COLUMN "{}" {}')
+        )
+        for field_name, _type, order in keys_to_index:
+            query = create_column_query.format(field_name, _type)
+            self._collection._db._connection.execute(query)
+
+        fields_to_index = [key[0] for key in keys_to_index]
+        return fields_to_index
+
+    def _feed_index(self, indexed_fields: list) -> None:
+        row_number = self._collection._db._connection.execute(
+            'SELECT count(id) FROM ' + self._collection._name
+        ).fetchone()[0]
+
+        if row_number == 0:
+            return
+
+        formated_indexed_fields = [
+            '"' + field + '"' for field in indexed_fields
+        ]
+        select_query = 'SELECT id, _data FROM ' + self._collection._name
+        csv_fields = ' = ?, '.join(formated_indexed_fields)
+        csv_fields += ' = ?'
+        update_query = (
+            'UPDATE ' + self._collection._name
+            + ' SET ' + csv_fields + ' WHERE id = ?'
+        )
+        cursor = self._collection._db._connection.execute(select_query)
+        for _id, document in cursor.fetchall():
+            document = json.loads(document)
+            index_values = [
+                _nested_get(document, field) for field in indexed_fields
+            ]
+            index_values.append(_id)
+            self._collection._db._connection.execute(
+                update_query, index_values
+            )
+
+    def execute(self):
+        index_keys = self._prepare_index_keys(self._keys)
+
+        # Check if the index already exists (all key are equivalent)
+        for index in self._collection._indexes['indexes']:
+            if index['keys'] == index_keys:
+                return
+
+        # Create a new column for non-indexed fields
+        new_indexed_fields = self._prepare_index_columns(index_keys)
+
+        # Copy data from document to new index column
+        self._feed_index(new_indexed_fields)
+
+        # Create the index
+        index_name = self._options.get('name')
+        indexed_fields = [key[0] for key in index_keys]
+        if index_name is None:
+            index_name = '_'.join((
+                self._collection._name, 'index', *indexed_fields
+            ))
+
+        formated_indexed_fields = [
+            '"' + field + '"' for field in indexed_fields
+        ]
+        csv_fields = ', '.join(formated_indexed_fields)
+        create_index = 'CREATE INDEX IF NOT EXISTS "{}" ON {}({})'.format(
+            index_name,
+            self._collection._name,
+            csv_fields
+        )
+        self._collection._db._connection.execute(create_index)
+
+        # Register the new index in the master table.
+        index = {
+            'name': index_name,
+            'keys': index_keys,
+        }
+        self._collection.register_index(index, new_indexed_fields)
+
+        json_indexes = json.dumps(self._collection._indexes)
+        update_master = (
+            'UPDATE plume_master SET indexes = ? '
+            'WHERE collection_name = "{}"'
+        ).format(self._collection._name)
+        self._collection._db._connection.execute(
+            update_master, [json_indexes]
+        )
+
+
+class Collection:
+    __slots__ = (
+        '_db', '_formated_indexed_fields', '_indexed_fields',
+        '_indexes', '_name', '_registered'
+    )
 
     def __init__(self, db, name: str, **kwargs) -> None:
         self._db = db
@@ -505,129 +632,28 @@ class Collection:
         self._db._collections[self._name] = self
         self._registered = True
 
-    def _prepare_index_keys(self, keys: list) -> list:
-        """
-            Returns a valid list of index keys.
-
-            An index key is a list of 3 values that describe an index
-            on a field. These 3 values are the field name, the field type,
-            and the index order.
-        """
-        # Allows the user to use a shortcut for single field index
-        # by providing only a tuple of keys.
-        if isinstance(keys, tuple):
-            keys = [keys]
-
-        # Replace index type with a SQLite compatible type, and
-        # add a default index direction (ASCENDING) if not indicated.
-        index_keys = [list(key) for key in keys]
-        for key in index_keys:
-            key[1] = self.INDEX_TYPES[key[1]]
-            if len(key) == 2:
-                key.append(ASCENDING)
-
-        return index_keys
-
-    def _prepare_index_columns(self, index_keys: list) -> list:
-        """Create a new column for non-indexed fields."""
-        indexed_fields = self._indexes['indexed_fields']
-        keys_to_index = [
-            key for key in index_keys
-            if key[0] not in indexed_fields
-        ]
-        create_column_query = ''.join(
-            ('ALTER TABLE ', self._name, ' ADD COLUMN "{}" {}')
-        )
-        for field_name, _type, order in keys_to_index:
-            query = create_column_query.format(field_name, _type)
-            self._db._connection.execute(query)
-
-        fields_to_index = [key[0] for key in keys_to_index]
-        return fields_to_index
-
-    def _feed_index(self, indexed_fields: list) -> None:
-        row_number = self._db._connection.execute(
-            'SELECT count(id) FROM ' + self._name
-        ).fetchone()[0]
-
-        if row_number == 0:
-            return
-
-        formated_indexed_fields = [
-            '"' + field + '"' for field in indexed_fields
-        ]
-        select_query = 'SELECT id, _data FROM ' + self._name
-        csv_fields = ' = ?, '.join(formated_indexed_fields)
-        csv_fields += ' = ?'
-        update_query = (
-            'UPDATE ' + self._name + ' SET ' + csv_fields + ' WHERE id = ?'
-        )
-        cursor = self._db._connection.execute(select_query)
-        for _id, document in cursor.fetchall():
-            document = json.loads(document)
-            index_values = [
-                _nested_get(document, field) for field in indexed_fields
-            ]
-            index_values.append(_id)
-            self._db._connection.execute(update_query, index_values)
-
     @transactional
     def create_index(self, keys: list, **kwargs) -> None:
         if not self._registered:
             self._register()
 
-        index_keys = self._prepare_index_keys(keys)
+        create_index_query = CreateIndexQuery(self, keys, **kwargs)
+        return create_index_query.execute()
 
-        # Check if the index already exists (all key are equivalent)
-        for index in self._indexes['indexes']:
-            if index['keys'] == index_keys:
-                return
-
-        # Create a new column for non-indexed fields
-        new_indexed_fields = self._prepare_index_columns(index_keys)
-
-        # Copy data from document to new index column
-        self._feed_index(new_indexed_fields)
-
-        # Create the index
-        index_name = kwargs.get('name')
-        indexed_fields = [key[0] for key in index_keys]
-        if index_name is None:
-            index_name = '_'.join((self._name, 'index', *indexed_fields))
-
-        formated_indexed_fields = [
-            '"' + field + '"' for field in indexed_fields
-        ]
-        csv_fields = ', '.join(formated_indexed_fields)
-        create_index = 'CREATE INDEX IF NOT EXISTS "{}" ON {}({})'.format(
-            index_name,
-            self._name,
-            csv_fields
-        )
-        self._db._connection.execute(create_index)
-
-        # Register the new index in the master table.
-        index = {
-            'name': index_name,
-            'keys': index_keys,
-        }
+    def register_index(self, index: dict, new_indexed_fields: list) -> None:
+        """Register a newly created index in Collection attributes."""
         self._indexes['indexes'].append(index)
         self._indexes['indexed_fields'] += new_indexed_fields
-        self._indexed_fields = self._indexes['indexed_fields']
+
         new_formated_indexed_fields = [
             '"' + field + '"' for field in new_indexed_fields
         ]
-        self._indexes['formated_indexed_fields'] += new_formated_indexed_fields
+        self._indexes['formated_indexed_fields'] += (
+            new_formated_indexed_fields
+        )
         self._formated_indexed_fields = (
             self._indexes['formated_indexed_fields']
         )
-
-        json_indexes = json.dumps(self._indexes)
-        update_master = (
-            'UPDATE plume_master SET indexes = ? '
-            'WHERE collection_name = "{}"'
-        ).format(self._name)
-        self._db._connection.execute(update_master, [json_indexes])
 
     def find(self, query: dict, projection: dict=None,
              limit: int=None) -> list:
