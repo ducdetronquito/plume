@@ -387,6 +387,79 @@ class SelectQuery:
             return [self._skim(document) for document in matching_documents]
 
 
+class ReplaceQuery:
+    __slots__ = (
+        '_collection', '_indexed_fields', '_query_tree',
+        '_replacement', '_upsert'
+    )
+
+    def __init__(self, collection, indexed_fields: set, query: dict,
+                 replacement: dict, upsert: bool) -> None:
+        self._collection = collection
+        self._indexed_fields = set(indexed_fields)
+        self._replacement = replacement
+        self._upsert = upsert
+        query = [{key: value} for key, value in query.items()]
+        self._query_tree = And(query)
+
+    def _match_one(self, documents: list) -> dict:
+        if self._query_tree.is_empty():
+            documents = list(documents)
+            if documents:
+                return documents[0]
+
+        for _id, document in documents:
+            if self._query_tree.match(document):
+                return (_id, document)
+
+        return (None, None)
+
+    def _sql_query(self) -> str:
+        select_query = ['SELECT id, _data FROM', self._collection._name]
+        where_clause = self._query_tree.sql(self._indexed_fields)
+
+        if where_clause is not None:
+            select_query += ['WHERE', where_clause]
+
+        if self._query_tree.is_empty():
+            # If selectors only apply on indexed field, return only 1 document
+            select_query.append('LIMIT 1')
+
+        return ' '.join(select_query)
+
+    def execute(self):
+        sql_query = self._sql_query()
+        result = self._collection._db._connection.execute(sql_query).fetchall()
+        partially_matching_documents = (
+            (_id, json.loads(data)) for _id, data in result
+        )
+        _id, matching_document = self._match_one(partially_matching_documents)
+
+        if matching_document is None:
+            if self._upsert:
+                return self._collection.insert_one(self._replacement)
+            return
+
+        fields = ['_data']
+        values = [json.dumps(self._replacement)]
+        if self._indexed_fields:
+            fields += self._indexed_fields
+            values += [
+                _nested_get(self._replacement, field)
+                for field in self._indexed_fields
+            ]
+        formated_fields = ['"' + field + '"' for field in fields]
+        fields_to_update = ' = ?, '.join(formated_fields)
+        fields_to_update += ' = ?'
+        values.append(_id)
+
+        update_query = 'UPDATE {} SET {} WHERE id = ?'.format(
+            self._collection._name,
+            fields_to_update,
+        )
+        self._collection._db._connection.execute(update_query, values)
+
+
 class Collection:
     __slots__ = (
         '_db', '_formated_indexed_fields', '_indexed_fields',
@@ -627,6 +700,16 @@ class Collection:
         )
 
         self._db._connection.executemany(insert_query, rows)
+
+    @transactional
+    def replace_one(self, query: dict, replacement: dict, upsert: bool=False):
+        if not self._registered:
+            self._register()
+
+        replace_query = ReplaceQuery(
+            self, self._indexed_fields, query, replacement, upsert
+        )
+        return replace_query.execute()
 
 
 class Database:

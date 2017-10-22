@@ -46,7 +46,7 @@ Installation
 For now, as the library is still pretty unstable so you need to clone the repository.
     
 
-The test suite (~78 tests) can be run with *pytest*
+The test suite (~82 tests) can be run with *pytest*
 
 .. code:: sh
 
