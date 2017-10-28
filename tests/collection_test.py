@@ -1,8 +1,8 @@
 # Internal dependencies
-from utils import BaseTest, collection_is_registered
+from utils import WritingBaseTest, collection_is_registered
 
 
-class TestCollectionCreation(BaseTest):
+class TestCollectionCreation(WritingBaseTest):
 
     def test_create_and_register_collection(self):
         assert not collection_is_registered(self.db, 'users')

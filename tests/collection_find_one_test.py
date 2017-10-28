@@ -1,151 +1,157 @@
 # Internal dependencies
-from utils import ACTORS, BaseTest, ReadingOpBaseTest
+from factories import Persona
+from utils import ReadingBaseTest, with_index, WritingBaseTest
 
 
-class TestCollectionFindOne(ReadingOpBaseTest):
+class TestCollectionFindOne(ReadingBaseTest):
 
     def setup_class(cls):
         super().setup_class(cls)
-        cls.db.actors.insert_many(ACTORS)
+        cls.personas = [
+            Persona(age=10, meta__mastodon_followers=10),
+            Persona(age=20, meta__mastodon_followers=20),
+            Persona(age=30, meta__mastodon_followers=30)
+        ]
+        cls.db.personas.insert_many(cls.personas)
+
+    def setup(self):
+        self.persoans = self.personas
 
     def test_equal_selector(self):
-        document = self.db.actors.find_one({'age': {'$eq': 20}})
-        assert document['age'] == 20
-        assert document['name'] == 'Beezlebub Cabbagepatch'
+        document = self.db.personas.find_one({
+            'age': {'$eq': self.personas[1]['age']}
+        })
+        assert document == self.personas[1]
 
     def test_equal_selector_on_nested_field(self):
-        document = self.db.actors.find_one({
-            'meta.social_media.mastodon_profile': {
-                '$eq': 'Beezlebub@Cabbagepatch'
+        document = self.db.personas.find_one({
+            'meta.mastodon_profile': {
+                '$eq': self.personas[2]['meta']['mastodon_profile']
             }
         })
-        assert document['name'] == 'Beezlebub Cabbagepatch'
-        assert (
-            document['meta']['social_media']['mastodon_profile']
-            == 'Beezlebub@Cabbagepatch'
-        )
+        assert document == self.personas[2]
 
     def test_not_equal_selector(self):
-        document = self.db.actors.find_one({'age': {'$ne': 20}})
-        assert document['age'] == 10
-        assert document['name'] == 'Bakery Cumbersome'
+        document = self.db.personas.find_one({
+            'age': {'$ne': self.personas[1]['age']}
+        })
+        assert document == self.personas[0]
 
     def test_greater_than_selector(self):
-        document = self.db.actors.find_one({'age': {'$gt': 10}})
-        assert document['age'] == 20
-        assert document['name'] == 'Beezlebub Cabbagepatch'
+        document = self.db.personas.find_one({
+            'age': {'$gt': self.personas[0]['age']}
+        })
+        assert document == self.personas[1]
 
     def test_greater_than_equals_selector(self):
-        document = self.db.actors.find_one({'age': {'$gte': 20}})
-        assert document['age'] == 20
-        assert document['name'] == 'Beezlebub Cabbagepatch'
+        document = self.db.personas.find_one({
+            'age': {'$gte': self.personas[1]['age']}
+        })
+        assert document == self.personas[1]
 
     def test_lower_than_selector(self):
-        document = self.db.actors.find_one({'age': {'$lt': 30}})
-        assert document['age'] == 10
-        assert document['name'] == 'Bakery Cumbersome'
+        document = self.db.personas.find_one({
+            'age': {'$lt': self.personas[2]['age']}
+        })
+        assert document == self.personas[0]
 
     def test_lower_than_equal_selector(self):
-        document = self.db.actors.find_one({'age': {'$lte': 20}})
-        assert document['age'] == 10
-        assert document['name'] == 'Bakery Cumbersome'
+        document = self.db.personas.find_one({
+            'age': {'$lte': self.personas[1]['age']}
+        })
+        assert document == self.personas[0]
 
     def test_projection_include_field(self):
-        query = {'age': {'$lte': 20}}
+        query = {'age': {'$lte': self.personas[1]['age']}}
         projection = {'name': 1}
-        document = self.db.actors.find_one(query, projection)
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 1
-        assert document['name'] == 'Bakery Cumbersome'
+        assert document['name'] == self.personas[0]['name']
 
     def test_projection_include_nested_field(self):
-        query = {'name': {'$eq': 'Bakery Cumbersome'}}
-        projection = {'meta.social_media.mastodon_profile': 1}
-        document = self.db.actors.find_one(query, projection)
+        query = {'name': {'$eq': self.personas[0]['name']}}
+        projection = {'meta.mastodon_profile': 1}
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 1
-        print(document)
         assert (
-            document['meta']['social_media']['mastodon_profile'] ==
-            'Bakery@Cumbersome'
+            document['meta']['mastodon_profile'] ==
+            self.personas[0]['meta']['mastodon_profile']
         )
 
     def test_projection_exclude_field(self):
-        query = {'age': {'$lte': 20}}
+        query = {'age': {'$lte': self.personas[1]['age']}}
         projection = {'meta': 0}
-        document = self.db.actors.find_one(query, projection)
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 3
-        assert document['name'] == 'Bakery Cumbersome'
-        assert document['age'] == 10
-        assert document['size'] == 1.6
+        assert document['name'] == self.personas[0]['name']
+        assert document['age'] == self.personas[0]['age']
+        assert document['size'] == self.personas[0]['size']
 
     def test_projection_exclude_nested_field(self):
-        query = {'age': {'$lte': 20}}
-        projection = {'meta.social_media.mastodon_profile': 0}
-        document = self.db.actors.find_one(query, projection)
+        query = {'age': {'$lte': self.personas[1]['age']}}
+        projection = {'meta.mastodon_profile': 0}
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 4
-        assert document['name'] == 'Bakery Cumbersome'
-        assert document['age'] == 10
-        assert document['size'] == 1.6
-        assert 'mastodon_profile' not in document['meta']['social_media']
-        assert document['meta']['social_media']['mastodon_followers'] == 10
-
-
-class TestCollectionFindOneWithIndex(BaseTest):
-
-    def test_find_on_single_indexed_integer_field(self):
-        self.db.actors.create_index([('age', int)])
-        self.db.actors.insert_many(ACTORS)
-        document = self.db.actors.find_one({
-            'age': {'$gt': 10}
-        })
-        assert document['name'] == 'Beezlebub Cabbagepatch'
-        assert document['age'] == 20
-
-    def test_find_on_nested_indexed_field(self):
-        self.db.actors.create_index([
-            ('meta.social_media.mastodon_followers', int)
-        ])
-        self.db.actors.insert_many(ACTORS)
-        document = self.db.actors.find_one({
-            'meta.social_media.mastodon_followers': {
-                '$gt': 10
-            }
-        })
-        assert document['name'] == 'Beezlebub Cabbagepatch'
-        assert (
-            document['meta']['social_media']['mastodon_followers']
-            == 20
+        assert document['name'] == self.personas[0]['name']
+        assert document['age'] == self.personas[0]['age']
+        assert document['size'] == self.personas[0]['size']
+        assert 'mastodon_profile' not in document['meta']
+        assert document['meta']['mastodon_followers'] == (
+            self.personas[0]['meta']['mastodon_followers']
         )
 
+
+class TestCollectionFindOneWithIndex(WritingBaseTest):
+
+    def setup(self):
+        super().setup()
+        self.personas = [
+            Persona(age=10, meta__mastodon_followers=10),
+            Persona(age=20, meta__mastodon_followers=20),
+            Persona(age=30, meta__mastodon_followers=30)
+        ]
+        self.db.personas.insert_many(self.personas)
+
+    @with_index(index=[('age', int)])
+    def test_find_on_single_indexed_integer_field(self):
+        document = self.db.personas.find_one({
+            'age': {'$gt': self.personas[0]['age']}
+        })
+        assert document == self.personas[1]
+
+    @with_index(index=[('meta.mastodon_followers', int)])
+    def test_find_on_nested_indexed_field(self):
+        document = self.db.personas.find_one({
+            'meta.mastodon_followers': {
+                '$gt': self.personas[0]['meta']['mastodon_followers']
+            }
+        })
+        assert document == self.personas[1]
+
+    @with_index(index=[('age', int)])
     def test_projection_include_indexed_field(self):
-        self.db.actors.create_index([('age', int)])
-        self.db.actors.insert_many(ACTORS)
-        query = {'age': {'$lte': 20}}
+        query = {'age': {'$lte': self.personas[1]['age']}}
         projection = {'age': 1}
-        document = self.db.actors.find_one(query, projection)
+        document = self.db.personas.find_one(query, projection)
 
         assert len(document) == 1
-        print(document)
-        assert document['age'] == 10
+        assert document['age'] == self.personas[0]['age']
 
+    @with_index(index=[('age', int)])
     def test_projection_include_non_indexed_field(self):
-        self.db.actors.create_index([('age', int)])
-        self.db.actors.insert_many(ACTORS)
-        query = {'age': {'$lte': 20}}
+        query = {'age': {'$lte': self.personas[1]['age']}}
         projection = {'name': 1}
-        document = self.db.actors.find_one(query, projection)
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 1
-        assert document['name'] == 'Bakery Cumbersome'
+        assert document['name'] == self.personas[0]['name']
 
+    @with_index(index=[('meta.mastodon_profile', str)])
     def test_projection_include_nested_indexed_field(self):
-        self.db.actors.create_index([
-            ('meta.social_media.mastodon_profile', str)
-        ])
-        self.db.actors.insert_many(ACTORS)
-        query = {'name': {'$eq': 'Bakery Cumbersome'}}
-        projection = {'meta.social_media.mastodon_profile': 1}
-        document = self.db.actors.find_one(query, projection)
+        query = {'name': {'$eq': self.personas[0]['name']}}
+        projection = {'meta.mastodon_profile': 1}
+        document = self.db.personas.find_one(query, projection)
         assert len(document) == 1
         assert (
-            document['meta']['social_media']['mastodon_profile'] ==
-            'Bakery@Cumbersome'
+            document['meta']['mastodon_profile'] ==
+            self.personas[0]['meta']['mastodon_profile']
         )

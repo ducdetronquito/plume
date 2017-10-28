@@ -2,88 +2,78 @@
 import json
 
 # Internal dependencies
-from utils import ACTORS, BaseTest
+from factories import Persona
+from utils import WritingBaseTest, with_index
 
 
-class TestCollectionInsertOne(BaseTest):
+class InsertOneBaseTest(WritingBaseTest):
+    def setup(self):
+        super().setup()
+        self.persona = Persona()
+
+
+class TestCollectionInsertOne(InsertOneBaseTest):
 
     def test_insert_document_add_new_row(self):
-        self.db.actors.insert_one({
-            'name': 'Bakery Cumbersome'
-        })
+        self.db.personas.insert_one(self.persona)
         row = self.db._connection.execute(
-            'SELECT count(_data) FROM actors'
+            'SELECT count(_data) FROM personas'
         ).fetchone()
         assert row[0] == 1
 
     def test_retrieve_document_values(self):
-        self.db.actors.insert_one({
-            'name': 'Bakery Cumbersome'
-        })
-
+        self.db.personas.insert_one(self.persona)
         document = self.db._connection.execute(
-            'SELECT _data FROM actors'
+            'SELECT _data FROM personas'
         ).fetchone()[0]
         actor = json.loads(document)
-        assert actor['name'] == 'Bakery Cumbersome'
+        assert actor['name'] == self.persona['name']
 
+
+class TestCollectionInsertOneWithIndex(InsertOneBaseTest):
+
+    @with_index(index=[('name', str)])
     def test_insert_one_with_single_field_index(self):
-        self.db.actors.create_index([('name', str)])
-        self.db.actors.insert_one({
-            'name': 'Bakery Cumbersome'
-        })
+        self.db.personas.insert_one(self.persona)
         document = self.db._connection.execute(
-            'SELECT _data, name FROM actors'
+            'SELECT _data, name FROM personas'
         ).fetchone()
         assert len(document) == 2
-        assert json.loads(document[0]) == {
-            'name': 'Bakery Cumbersome'
-        }
-        assert document[1] == 'Bakery Cumbersome'
+        assert json.loads(document[0]) == self.persona
+        assert document[1] == self.persona['name']
 
+    @with_index(index=[('name', str)])
     def test_insert_one_with_single_field_index_with_missing_field(self):
-        self.db.actors.create_index([('name', str)])
-        self.db.actors.insert_one({
-            'age': 42
-        })
+        self.persona.pop('name')
+        self.db.personas.insert_one(self.persona)
         document = self.db._connection.execute(
-            'SELECT _data, name FROM actors'
+            'SELECT _data, name FROM personas'
         ).fetchone()
         assert len(document) == 2
-        assert json.loads(document[0]) == {
-            'age': 42
-        }
+        assert json.loads(document[0]) == self.persona
         assert document[1] is None
 
+    @with_index(index=[('meta.mastodon_profile', str)])
     def test_insert_one_with_index_on_single_nest_field(self):
-        self.db.users.create_index([
-            ('meta.social_media.mastodon_profile', str)
-        ])
-        inserted_document = {
-            'name': 'Bakery Cumbersome',
-            'meta': {
-                'social_media': {
-                    'mastodon_profile': 'Bakery@Cumbersome'
-                }
-            }
-        }
-        self.db.users.insert_one(inserted_document)
+        self.db.personas.insert_one(self.persona)
         document = self.db._connection.execute(
-            'SELECT _data, "meta.social_media.mastodon_profile" FROM users'
+            'SELECT _data, "meta.mastodon_profile" FROM "personas"'
         ).fetchone()
         assert len(document) == 2
-        assert json.loads(document[0]) == inserted_document
-        assert document[1] == 'Bakery@Cumbersome'
+        assert json.loads(document[0]) == self.persona
+        assert document[1] == (
+            self.persona['meta']['mastodon_profile']
+        )
 
+    @with_index(index=[('name', str)])
+    @with_index(index=[('age', int)])
     def test_insert_one_with_multiple_single_field_indexes(self):
-        self.db.actors.create_index([('name', str)])
-        self.db.actors.create_index([('age', int)])
-        self.db.actors.insert_one(ACTORS[0])
+        self.db.personas.insert_one(self.persona)
         rows = self.db._connection.execute(
-            'SELECT _data, "name", "age" FROM "actors"'
+            'SELECT _data, "name", "age" FROM "personas"'
         ).fetchall()
         assert len(rows) == 1
         row = rows[0]
-        assert json.loads(row[0]) == ACTORS[0]
-        assert row[1] == 'Bakery Cumbersome'
-        assert row[2] == 10
+        assert json.loads(row[0]) == self.persona
+        assert row[1] == self.persona['name']
+        assert row[2] == self.persona['age']
